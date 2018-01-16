@@ -27,7 +27,6 @@ Attention, il faut toujours que la taille de la fenêtre du dessous divise la ta
 * concaténer les sous-parties en matrices de train/test :
     python _2npy_wav_conditional.py
 
-
 ### Train model
 
 
