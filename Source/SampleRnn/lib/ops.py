@@ -8,7 +8,7 @@ different sources. (Ask me if the source is not indicated)
 import os, sys
 sys.path.append(os.getcwd())
 sys.path.insert(1, '../')
-import lib
+import SampleRnn.lib
 import numpy
 import theano
 import theano.tensor as T
@@ -90,7 +90,7 @@ def Linear(
             raise Exception("Invalid initialization ({})!"\
                     .format(repr(initialization)))
 
-        weight = lib.param(
+        weight = SampleRnn.lib.param(
             name + '.W'+str(i),
             weight_values
         )
@@ -98,7 +98,7 @@ def Linear(
 
         if weightnorm:
             norm_values = numpy.linalg.norm(weight_values, axis=0)
-            norms = lib.param(
+            norms = SampleRnn.lib.param(
                 name + '.g'+str(i),
                 norm_values
             )
@@ -111,7 +111,7 @@ def Linear(
         terms.append(T.dot(inp, prepared_weight))
 
     if biases:
-        layer_biases = lib.param(
+        layer_biases = SampleRnn.lib.param(
             name + '.b',
             numpy.zeros((output_dim,), dtype=theano.config.floatX)
         )
@@ -151,22 +151,22 @@ def Batchnorm(
         variances = wrt.reshape((-1, input_dim)).var(axis=0)
 
     if i_gamma is None:
-        i_gamma = lib.floatX(0.1) * numpy.ones(input_dim, dtype=theano.config.floatX)
+        i_gamma = SampleRnn.lib.floatX(0.1) * numpy.ones(input_dim, dtype=theano.config.floatX)
 
     if i_beta is None:
         i_beta = numpy.zeros(input_dim, dtype=theano.config.floatX)
 
-    gamma = lib.param(
+    gamma = SampleRnn.lib.param(
         name + '.gamma',
         i_gamma
     )
 
-    beta = lib.param(
+    beta = SampleRnn.lib.param(
         name + '.beta',
         i_beta
     )
 
-    stdevs = T.sqrt(variances + lib.floatX(1e-6))
+    stdevs = T.sqrt(variances + SampleRnn.lib.floatX(1e-6))
 
     stdevs.name = name+'.stdevs'
     means.name = name+'.means'
@@ -248,7 +248,7 @@ def MLP(name, input_dim, hidden_dim, output_dim, n_layers, inputs, batchnorm=Tru
     )
 
 def Embedding(name, n_symbols, output_dim, indices):
-    vectors = lib.param(
+    vectors = SampleRnn.lib.param(
         name,
         numpy.random.randn(
             n_symbols,
@@ -299,7 +299,7 @@ def __Recurrent(name, hidden_dims, step_fn, inputs, non_sequences=[], h0s=None):
 
     for i in xrange(len(hidden_dims)):
         if h0s[i] is None:
-            h0_unbatched = lib.param(
+            h0_unbatched = SampleRnn.lib.param(
                 name + '.h0_' + str(i),
                 numpy.zeros((hidden_dims[i],), dtype=theano.config.floatX)
             )
@@ -344,7 +344,7 @@ def __GRUStep(
     """
     # x_t*(U^z, U^r, U^h)
     # Also contains biases
-    processed_input = lib.ops.Linear(
+    processed_input = SampleRnn.lib.ops.Linear(
         name+'.Input',
         input_dim,
         3 * hidden_dim,
@@ -353,7 +353,7 @@ def __GRUStep(
     )
 
     gates = T.nnet.sigmoid(
-        lib.ops.Linear(
+        SampleRnn.lib.ops.Linear(
             name+'.Recurrent_Gates',
             hidden_dim,
             2 * hidden_dim,
@@ -369,7 +369,7 @@ def __GRUStep(
     scaled_hidden = reset * last_hidden
 
     candidate = T.tanh(
-        lib.ops.Linear(
+        SampleRnn.lib.ops.Linear(
             name+'.Recurrent_Candidate',
             hidden_dim,
             hidden_dim,
@@ -380,7 +380,7 @@ def __GRUStep(
         ) + processed_input[:, 2*hidden_dim:]
     )
 
-    one = lib.floatX(1.0)
+    one = SampleRnn.lib.floatX(1.0)
     return (update * candidate) + ((one - update) * last_hidden)
 
 def LowMemGRU(
@@ -493,7 +493,7 @@ def __LSTMStep(
         - Fix the 'concatenation' to use instead of T.concatenation
     """
     # X_t*(U^i, U^f, U^o, U^g)
-    processed_input = lib.ops.Linear(
+    processed_input = SampleRnn.lib.ops.Linear(
         name+'.Input',
         input_dim,
         4 * hidden_dim,
@@ -506,7 +506,7 @@ def __LSTMStep(
     s_tm1 = last_hidden[:, :hidden_dim]
     c_tm1 = last_hidden[:, hidden_dim:]
     # S_{t-1}*(W^i, W^f, W^o, W^g)
-    processed_last_hidden = lib.ops.Linear(
+    processed_last_hidden = SampleRnn.lib.ops.Linear(
         name+'.Recurrent_Gates',
         hidden_dim,
         4 * hidden_dim,
@@ -521,7 +521,7 @@ def __LSTMStep(
     gate_bias_inits[hidden_dim:2*hidden_dim]   = forget_bias_init
     gate_bias_inits[2*hidden_dim:3*hidden_dim] = out_bias_init
     gate_bias_inits[3*hidden_dim:]             = g_bias_init
-    biases = lib.param(name + '.b', gate_bias_inits)
+    biases = SampleRnn.lib.param(name + '.b', gate_bias_inits)
 
     pre_gates  = processed_input + processed_last_hidden  # 4*dim
     pre_gates += biases  # 4*dim
@@ -969,11 +969,11 @@ def gaussian_nll(x, mus, sigmas):
     sigmas (s_1,..., s_n) should be strictly positive.
     Results in output shape of similar but without the last dimension.
     """
-    nll = lib.floatX(numpy.log(2. * numpy.pi))
+    nll = SampleRnn.lib.floatX(numpy.log(2. * numpy.pi))
     nll += 2. * T.log(sigmas)
     nll += ((x - mus) / sigmas) ** 2.
     nll = nll.sum(axis=-1)
-    nll *= lib.floatX(0.5)
+    nll *= SampleRnn.lib.floatX(0.5)
     return nll
 
 def GMM_nll(x, mus, sigmas, mix_weights):
@@ -990,11 +990,11 @@ def GMM_nll(x, mus, sigmas, mix_weights):
     x = x.dimshuffle(0, 1, 'x')
 
     # Similar to `gaussian_nll`
-    ll_component_wise = lib.floatX(numpy.log(2. * numpy.pi))
+    ll_component_wise = SampleRnn.lib.floatX(numpy.log(2. * numpy.pi))
     ll_component_wise += 2. * T.log(sigmas)
     ll_component_wise += ((x - mus) / sigmas) ** 2.
     ll_component_wise = ll_component_wise.sum(axis=1)  # on FRAME_SIZE
-    ll_component_wise *= lib.floatX(-0.5)  # LL not NLL
+    ll_component_wise *= SampleRnn.lib.floatX(-0.5)  # LL not NLL
 
     # Now ready to take care of weights of each component
     # Simply applying exp could potentially cause inf/NaN.
@@ -1202,12 +1202,12 @@ def dil_conv_1D(
     W_shape = (num_filters, input_dim, filter_size, 1)
     bias_shape = (num_filters,)
 
-    W = lib.param(name+".W", initializer.sample(W_shape))
-    b = lib.param(name+".b", lasagne.init.Constant(0.).sample(bias_shape))
+    W = SampleRnn.lib.param(name+".W", initializer.sample(W_shape))
+    b = SampleRnn.lib.param(name+".b", lasagne.init.Constant(0.).sample(bias_shape))
 
 
     W1x1_shape = (2*output_dim, output_dim, 1, 1)
-    W1x1 = lib.param(name+".W1x1", initializer.sample(W1x1_shape))
+    W1x1 = SampleRnn.lib.param(name+".W1x1", initializer.sample(W1x1_shape))
 
     conv_out = T.nnet.conv2d(
                     inp,  W,
@@ -1276,10 +1276,10 @@ def conv1d(
     if bias:
         bias_shape = (num_filters,)
 
-    W = lib.param(name+".W", initializer.sample(W_shape))
+    W = SampleRnn.lib.param(name+".W", initializer.sample(W_shape))
 
     if bias:
-        b = lib.param(name+".b", lasagne.init.Constant(0.).sample(bias_shape))
+        b = SampleRnn.lib.param(name+".b", lasagne.init.Constant(0.).sample(bias_shape))
 
     conv_out = T.nnet.conv2d(
                     inp,  W,

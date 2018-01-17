@@ -11,11 +11,23 @@ sampleRNN$ pwd
 
 
 sampleRNN$ \
-THEANO_FLAGS=mode=FAST_RUN,device=gpu,floatX=float32 python -u \
+THEANO_FLAGS=mode=FAST_RUN,device=cuda,floatX=float32 python -u \
 models/three_tier/three_tier.py --exp AXIS1 --seq_len 512 --big_frame_size 8 \
 --frame_size 2 --weight_norm True --emb_size 64 --skip_conn False --dim 32 \
 --n_rnn 2 --rnn_type LSTM --learn_h0 False --q_levels 16 --q_type linear \
---batch_size 128 --which_set MUSIC
+--batch_size 128
+
+THEANO_FLAGS=mode=FAST_RUN,device=cuda,floatX=float32 python -u \
+three_tier.py --exp AXIS1 --seq_len 512 --big_frame_size 8 \
+--frame_size 2 --weight_norm True --emb_size 64 --skip_conn False --dim 32 \
+--n_rnn 2 --rnn_type LSTM --learn_h0 False --q_levels 16 --q_type linear \
+--batch_size 128
+
+THEANO_FLAGS=mode=FAST_RUN,device=cuda,floatX=float32 python -u \
+three_tier.py --exp AXIS1 --seq_len 256 --big_frame_size 8 \
+--frame_size 2 --weight_norm True --emb_size 64 --skip_conn False --dim 32 \
+--n_rnn 1 --rnn_type LSTM --learn_h0 False --q_levels 16 --q_type linear \
+--batch_size 128
 
 To resume add ` --resume` to the END of the EXACTLY above line. You can run the
 resume code as many time as possible, depending on the TRAIN_MODE.
@@ -43,7 +55,7 @@ import theano.ifelse
 import lasagne
 import scipy.io.wavfile
 
-import lib
+import SampleRnn.lib
 
 LEARNING_RATE = 0.001
 
@@ -111,8 +123,6 @@ def get_args():
     parser.add_argument('--q_type', help='Quantization in linear-scale, a-law-companding,\
             or mu-law compandig. With mu-/a-law quantization level shoud be set as 256',\
             choices=['linear', 'a-law', 'mu-law'], required=True)
-    parser.add_argument('--which_set', help='ONOM, BLIZZ, MUSIC, or HUCK',
-            choices=['ONOM', 'BLIZZ', 'MUSIC', 'HUCK'], required=True)
     parser.add_argument('--batch_size', help='size of mini-batch',
             type=check_positive, choices=[64, 128, 256], required=True)
 
@@ -156,7 +166,6 @@ H0_MULT = 2 if RNN_TYPE == 'LSTM' else 1
 LEARN_H0 = args.learn_h0
 Q_LEVELS = args.q_levels # How many levels to use when discretizing samples. e.g. 256 = 8-bit scalar quantization
 Q_TYPE = args.q_type # log- or linear-scale
-WHICH_SET = args.which_set
 BATCH_SIZE = args.batch_size
 RESUME = args.resume
 assert SEQ_LEN % BIG_FRAME_SIZE == 0,\
@@ -223,30 +232,16 @@ BEST_PATH = os.path.join(FOLDER_PREFIX, 'best')
 if not os.path.exists(BEST_PATH):
     os.makedirs(BEST_PATH)
 
-lib.print_model_settings(locals(), path=FOLDER_PREFIX, sys_arg=True)
+SampleRnn.lib.print_model_settings(locals(), path=FOLDER_PREFIX, sys_arg=True)
 
 ### Import the data_feeder ###
-# Handling WHICH_SET
-if WHICH_SET == 'ONOM':
-    from datasets.dataset import onom_train_feed_epoch as train_feeder
-    from datasets.dataset import onom_valid_feed_epoch as valid_feeder
-    from datasets.dataset import onom_test_feed_epoch  as test_feeder
-elif WHICH_SET == 'BLIZZ':
-    from datasets.dataset import blizz_train_feed_epoch as train_feeder
-    from datasets.dataset import blizz_valid_feed_epoch as valid_feeder
-    from datasets.dataset import blizz_test_feed_epoch  as test_feeder
-elif WHICH_SET == 'MUSIC':
-    from datasets.dataset import music_train_feed_epoch as train_feeder
-    from datasets.dataset import music_valid_feed_epoch as valid_feeder
-    from datasets.dataset import music_test_feed_epoch  as test_feeder
-elif WHICH_SET == 'HUCK':
-    from datasets.dataset import huck_train_feed_epoch as train_feeder
-    from datasets.dataset import huck_valid_feed_epoch as valid_feeder
-    from datasets.dataset import huck_test_feed_epoch  as test_feeder
+from SampleRnn.load_data.dataset import music_train_feed_epoch as train_feeder
+from SampleRnn.load_data.dataset import music_valid_feed_epoch as valid_feeder
+from SampleRnn.load_data.dataset import music_test_feed_epoch  as test_feeder
 
 def load_data(data_feeder):
     """
-    Helper function to deal with interface of different datasets.
+    Helper function to deal with interface of different SampleRnn.load_data.
     `data_feeder` should be `train_feeder`, `valid_feeder`, or `test_feeder`.
     """
     return data_feeder(BATCH_SIZE,
@@ -274,11 +269,11 @@ def big_frame_level_rnn(input_sequences, h0, reset):
 
     # Rescale frames from ints in [0, Q_LEVELS) to floats in [-2, 2]
     # (a reasonable range to pass as inputs to the RNN)
-    frames = (frames.astype('float32') / lib.floatX(Q_LEVELS/2)) - lib.floatX(1)
-    frames *= lib.floatX(2)
+    frames = (frames.astype('float32') / SampleRnn.lib.floatX(Q_LEVELS/2)) - SampleRnn.lib.floatX(1)
+    frames *= SampleRnn.lib.floatX(2)
 
     # Initial state of RNNs
-    learned_h0 = lib.param(
+    learned_h0 = SampleRnn.lib.param(
         'BigFrameLevel.h0',
         numpy.zeros((N_BIG_RNN, H0_MULT*BIG_DIM), dtype=theano.config.floatX)
     )
@@ -291,7 +286,7 @@ def big_frame_level_rnn(input_sequences, h0, reset):
     # Handling RNN_TYPE
     # Handling SKIP_CONN
     if RNN_TYPE == 'GRU':
-        rnns_out, last_hidden = lib.ops.stackedGRU('BigFrameLevel.GRU',
+        rnns_out, last_hidden = SampleRnn.lib.ops.stackedGRU('BigFrameLevel.GRU',
                                                    N_BIG_RNN,
                                                    BIG_FRAME_SIZE,
                                                    BIG_DIM,
@@ -300,7 +295,7 @@ def big_frame_level_rnn(input_sequences, h0, reset):
                                                    weightnorm=WEIGHT_NORM,
                                                    skip_conn=SKIP_CONN)
     elif RNN_TYPE == 'LSTM':
-        rnns_out, last_hidden = lib.ops.stackedLSTM('BigFrameLevel.LSTM',
+        rnns_out, last_hidden = SampleRnn.lib.ops.stackedLSTM('BigFrameLevel.LSTM',
                                                     N_BIG_RNN,
                                                     BIG_FRAME_SIZE,
                                                     BIG_DIM,
@@ -309,7 +304,7 @@ def big_frame_level_rnn(input_sequences, h0, reset):
                                                     weightnorm=WEIGHT_NORM,
                                                     skip_conn=SKIP_CONN)
 
-    output = lib.ops.Linear(
+    output = SampleRnn.lib.ops.Linear(
         'BigFrameLevel.Output',
         BIG_DIM,
         DIM * BIG_FRAME_SIZE / FRAME_SIZE,
@@ -319,7 +314,7 @@ def big_frame_level_rnn(input_sequences, h0, reset):
     )
     output = output.reshape((output.shape[0], output.shape[1] * BIG_FRAME_SIZE / FRAME_SIZE, DIM))
 
-    independent_preds = lib.ops.Linear(
+    independent_preds = SampleRnn.lib.ops.Linear(
         'BigFrameLevel.IndependentPreds',
         BIG_DIM,
         Q_LEVELS * BIG_FRAME_SIZE,
@@ -347,10 +342,10 @@ def frame_level_rnn(input_sequences, other_input, h0, reset):
 
     # Rescale frames from ints in [0, Q_LEVELS) to floats in [-2, 2]
     # (a reasonable range to pass as inputs to the RNN)
-    frames = (frames.astype('float32') / lib.floatX(Q_LEVELS/2)) - lib.floatX(1)
-    frames *= lib.floatX(2)
+    frames = (frames.astype('float32') / SampleRnn.lib.floatX(Q_LEVELS/2)) - SampleRnn.lib.floatX(1)
+    frames *= SampleRnn.lib.floatX(2)
 
-    gru_input = lib.ops.Linear(
+    gru_input = SampleRnn.lib.ops.Linear(
         'FrameLevel.InputExpand',
         FRAME_SIZE,
         DIM,
@@ -360,7 +355,7 @@ def frame_level_rnn(input_sequences, other_input, h0, reset):
         ) + other_input
 
     # Initial state of RNNs
-    learned_h0 = lib.param(
+    learned_h0 = SampleRnn.lib.param(
         'FrameLevel.h0',
         numpy.zeros((N_RNN, H0_MULT*DIM), dtype=theano.config.floatX)
     )
@@ -374,7 +369,7 @@ def frame_level_rnn(input_sequences, other_input, h0, reset):
     # Handling RNN_TYPE
     # Handling SKIP_CONN
     if RNN_TYPE == 'GRU':
-        rnns_out, last_hidden = lib.ops.stackedGRU('FrameLevel.GRU',
+        rnns_out, last_hidden = SampleRnn.lib.ops.stackedGRU('FrameLevel.GRU',
                                                    N_RNN,
                                                    DIM,
                                                    DIM,
@@ -383,7 +378,7 @@ def frame_level_rnn(input_sequences, other_input, h0, reset):
                                                    weightnorm=WEIGHT_NORM,
                                                    skip_conn=SKIP_CONN)
     elif RNN_TYPE == 'LSTM':
-        rnns_out, last_hidden = lib.ops.stackedLSTM('FrameLevel.LSTM',
+        rnns_out, last_hidden = SampleRnn.lib.ops.stackedLSTM('FrameLevel.LSTM',
                                                     N_RNN,
                                                     DIM,
                                                     DIM,
@@ -392,7 +387,7 @@ def frame_level_rnn(input_sequences, other_input, h0, reset):
                                                     weightnorm=WEIGHT_NORM,
                                                     skip_conn=SKIP_CONN)
 
-    output = lib.ops.Linear(
+    output = SampleRnn.lib.ops.Linear(
         'FrameLevel.Output',
         DIM,
         FRAME_SIZE * DIM,
@@ -412,11 +407,11 @@ def sample_level_predictor(frame_level_outputs, prev_samples):
     """
     # Handling EMB_SIZE
     if EMB_SIZE == 0:  # no support for one-hot in three_tier and one_tier.
-        prev_samples = lib.ops.T_one_hot(prev_samples, Q_LEVELS)
+        prev_samples = SampleRnn.lib.ops.T_one_hot(prev_samples, Q_LEVELS)
         # (BATCH_SIZE*N_FRAMES*FRAME_SIZE, FRAME_SIZE, Q_LEVELS)
         last_out_shape = Q_LEVELS
     elif EMB_SIZE > 0:
-        prev_samples = lib.ops.Embedding(
+        prev_samples = SampleRnn.lib.ops.Embedding(
             'SampleLevel.Embedding',
             Q_LEVELS,
             EMB_SIZE,
@@ -428,7 +423,7 @@ def sample_level_predictor(frame_level_outputs, prev_samples):
 
     prev_samples = prev_samples.reshape((-1, FRAME_SIZE * last_out_shape))
 
-    out = lib.ops.Linear(
+    out = SampleRnn.lib.ops.Linear(
         'SampleLevel.L1_PrevSamples',
         FRAME_SIZE * last_out_shape,
         DIM,
@@ -441,7 +436,7 @@ def sample_level_predictor(frame_level_outputs, prev_samples):
     out += frame_level_outputs
     # out = T.nnet.relu(out)  # commented out to be similar to two_tier
 
-    out = lib.ops.Linear('SampleLevel.L2',
+    out = SampleRnn.lib.ops.Linear('SampleLevel.L2',
                          DIM,
                          DIM,
                          out,
@@ -450,7 +445,7 @@ def sample_level_predictor(frame_level_outputs, prev_samples):
     out = T.nnet.relu(out)
 
     # L3
-    out = lib.ops.Linear('SampleLevel.L3',
+    out = SampleRnn.lib.ops.Linear('SampleLevel.L3',
                          DIM,
                          DIM,
                          out,
@@ -460,7 +455,7 @@ def sample_level_predictor(frame_level_outputs, prev_samples):
 
     # Output
     # We apply the softmax later
-    out = lib.ops.Linear('SampleLevel.Output',
+    out = SampleRnn.lib.ops.Linear('SampleLevel.Output',
                          DIM,
                          Q_LEVELS,
                          out,
@@ -523,9 +518,9 @@ cost = cost / target_mask.sum()
 # By default we report cross-entropy cost in bits.
 # Switch to nats by commenting out this line:
 # log_2(e) = 1.44269504089
-cost = cost * lib.floatX(numpy.log2(numpy.e))
+cost = cost * SampleRnn.lib.floatX(numpy.log2(numpy.e))
 
-ip_cost = lib.floatX(numpy.log2(numpy.e)) * T.nnet.categorical_crossentropy(
+ip_cost = SampleRnn.lib.floatX(numpy.log2(numpy.e)) * T.nnet.categorical_crossentropy(
     T.nnet.softmax(big_frame_independent_preds.reshape((-1, Q_LEVELS))),
     target_sequences.flatten()
 )
@@ -535,36 +530,36 @@ ip_cost = ip_cost.sum()
 ip_cost = ip_cost / target_mask.sum()
 
 ### Getting the params, grads, updates, and Theano functions ###
-#params = lib.get_params(cost, lambda x: hasattr(x, 'param') and x.param==True)
-#ip_params = lib.get_params(ip_cost, lambda x: hasattr(x, 'param') and x.param==True\
+#params = SampleRnn.lib.get_params(cost, lambda x: hasattr(x, 'param') and x.param==True)
+#ip_params = SampleRnn.lib.get_params(ip_cost, lambda x: hasattr(x, 'param') and x.param==True\
 #    and 'BigFrameLevel' in x.name)
 #other_params = [p for p in params if p not in ip_params]
 #params = ip_params + other_params
-#lib.print_params_info(params, path=FOLDER_PREFIX)
+#SampleRnn.lib.print_params_info(params, path=FOLDER_PREFIX)
 #
 #grads = T.grad(cost, wrt=params, disconnected_inputs='warn')
-#grads = [T.clip(g, lib.floatX(-GRAD_CLIP), lib.floatX(GRAD_CLIP)) for g in grads]
+#grads = [T.clip(g, SampleRnn.lib.floatX(-GRAD_CLIP), SampleRnn.lib.floatX(GRAD_CLIP)) for g in grads]
 #
 #updates = lasagne.updates.adam(grads, params, learning_rate=LEARNING_RATE)
 
 ###########
-all_params = lib.get_params(cost, lambda x: hasattr(x, 'param') and x.param==True)
-ip_params = lib.get_params(ip_cost, lambda x: hasattr(x, 'param') and x.param==True\
+all_params = SampleRnn.lib.get_params(cost, lambda x: hasattr(x, 'param') and x.param==True)
+ip_params = SampleRnn.lib.get_params(ip_cost, lambda x: hasattr(x, 'param') and x.param==True\
     and 'BigFrameLevel' in x.name)
 other_params = [p for p in all_params if p not in ip_params]
 all_params = ip_params + other_params
-lib.print_params_info(ip_params, path=FOLDER_PREFIX)
-lib.print_params_info(other_params, path=FOLDER_PREFIX)
-lib.print_params_info(all_params, path=FOLDER_PREFIX)
+SampleRnn.lib.print_params_info(ip_params, path=FOLDER_PREFIX)
+SampleRnn.lib.print_params_info(other_params, path=FOLDER_PREFIX)
+SampleRnn.lib.print_params_info(all_params, path=FOLDER_PREFIX)
 
 ip_grads = T.grad(ip_cost, wrt=ip_params, disconnected_inputs='warn')
-ip_grads = [T.clip(g, lib.floatX(-GRAD_CLIP), lib.floatX(GRAD_CLIP)) for g in ip_grads]
+ip_grads = [T.clip(g, SampleRnn.lib.floatX(-GRAD_CLIP), SampleRnn.lib.floatX(GRAD_CLIP)) for g in ip_grads]
 
 other_grads = T.grad(cost, wrt=other_params, disconnected_inputs='warn')
-other_grads = [T.clip(g, lib.floatX(-GRAD_CLIP), lib.floatX(GRAD_CLIP)) for g in other_grads]
+other_grads = [T.clip(g, SampleRnn.lib.floatX(-GRAD_CLIP), SampleRnn.lib.floatX(GRAD_CLIP)) for g in other_grads]
 
 grads = T.grad(cost, wrt=all_params, disconnected_inputs='warn')
-grads = [T.clip(g, lib.floatX(-GRAD_CLIP), lib.floatX(GRAD_CLIP)) for g in grads]
+grads = [T.clip(g, SampleRnn.lib.floatX(-GRAD_CLIP), SampleRnn.lib.floatX(GRAD_CLIP)) for g in grads]
 
 ip_updates = lasagne.updates.adam(ip_grads, ip_params)
 other_updates = lasagne.updates.adam(other_grads, other_params)
@@ -631,7 +626,7 @@ frame_level_outputs = T.matrix('frame_level_outputs')
 prev_samples        = T.imatrix('prev_samples')
 sample_level_generate_fn = theano.function(
     [frame_level_outputs, prev_samples],
-    lib.ops.softmax_and_sample(
+    SampleRnn.lib.ops.softmax_and_sample(
         sample_level_predictor(
             frame_level_outputs,
             prev_samples
@@ -715,7 +710,7 @@ def generate_and_save_samples(tag):
     for i in xrange(N_SEQS):
         samp = samples[i]
         if Q_TYPE == 'mu-law':
-            from datasets.dataset import mu2linear
+            from SampleRnn.load_data.dataset import mu2linear
             samp = mu2linear(samp)
         elif Q_TYPE == 'a-law':
             raise NotImplementedError('a-law is not implemented')
@@ -768,7 +763,7 @@ if RESUME:
     # Then overwrite some of the variables above.
     iters_to_consume, res_path, epoch, total_iters,\
         [lowest_valid_cost, corresponding_test_cost, test_cost] = \
-        lib.resumable(path=FOLDER_PREFIX,
+        SampleRnn.lib.resumable(path=FOLDER_PREFIX,
                       iter_key=iter_str,
                       epoch_key=epoch_str,
                       add_resume_counter=True,
@@ -786,12 +781,12 @@ if RESUME:
     print "Train data ready in {:.2f}secs after consuming {} minibatches.".\
             format(consume_time, iters_to_consume)
 
-    lib.load_params(res_path)
+    SampleRnn.lib.load_params(res_path)
     print "Parameters from last available checkpoint loaded."
 
 while True:
     # THIS IS ONE ITERATION
-    if total_iters % 500 == 0:
+    if total_iters-last_print_iters % 500 == 0:
         print total_iters,
 
     total_iters += 1
@@ -811,7 +806,7 @@ while True:
         print "[Another epoch]",
 
     seqs, reset, mask = mini_batch
-
+    import pdb; pdb.set_trace()
     start_time = time()
     cost, big_h0, h0 = train_fn(seqs, big_h0, h0, reset, mask)
     total_time += time() - start_time
@@ -876,7 +871,7 @@ while True:
         # If saving params is not successful, there shouldn't be any trace of
         # successful monitoring step in train_log as well.
         print "Saving params!",
-        lib.save_params(
+        SampleRnn.lib.save_params(
                 os.path.join(PARAMS_PATH, 'params_{}.pkl'.format(tag))
         )
         print "Done!"
@@ -893,11 +888,11 @@ while True:
                          'valid time' : valid_time,
                          'test time' : test_time,
                          'wall clock time' : time()-exp_start}
-        lib.save_training_info(training_info, FOLDER_PREFIX)
+        SampleRnn.lib.save_training_info(training_info, FOLDER_PREFIX)
         print "Train info saved!",
 
         y_axis_strs = [train_nll_str, valid_nll_str, test_nll_str]
-        lib.plot_traing_info(iter_str, y_axis_strs, FOLDER_PREFIX)
+        SampleRnn.lib.plot_traing_info(iter_str, y_axis_strs, FOLDER_PREFIX)
         print "And plotted!"
 
         # 5. Generate and save samples (time consuming)

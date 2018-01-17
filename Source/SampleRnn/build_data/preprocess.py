@@ -103,7 +103,7 @@ def main(RAW_DATA_DIR, chunk_length, slide_length):
 	return
 
 if __name__ == '__main__':
-	chunk_length = 8
-	slide_length = 2
+	chunk_length = 1
+	slide_length = 0.75
 	RAW_DATA_DIR=str(sys.argv[1])
 	main(RAW_DATA_DIR, chunk_length, slide_length)
