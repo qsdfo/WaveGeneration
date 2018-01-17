@@ -2,3 +2,5 @@ Articles
 Data
 Biblio
 .DS_Store
+
+*.pyc
