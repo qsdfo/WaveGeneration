@@ -1,6 +1,24 @@
+# In root dir
 Articles
 Data
 Biblio
 .DS_Store
 
+# TF_Samplernn
+Source/TF_Samplernn/logdir/
+Source/TF_Samplernn/LICENSE
+Source/TF_Samplernn/README.md
+Source/TF_Samplernn/run.sh
+
+# WaveNet
+Source/WaveNet/.gitignore
+Source/WaveNet/LICENSE
+Source/WaveNet/README.md
+Source/WaveNet/images/
+Source/WaveNet/music/
+Source/WaveNet/wavenet_params.json
+
+# Extensions
 *.pyc
+*.yml
+*.txt

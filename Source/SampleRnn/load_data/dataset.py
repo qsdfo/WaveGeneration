@@ -18,7 +18,7 @@ __base = [
     ('OnSenBatLesCouillesDeCetteValeur', '/home/aciditeam-leo/Aciditeam/WaveGeneration/Data/'),
 ]
 
-__data_path = 'all_instru_C3_no_cond' # in float16 8secs*16000samples/sec
+__data_path = 'le_joueur_no_cond' # in float16 8secs*16000samples/sec
 
 __train_mean_std = np.array([-2.7492260671334582e-05,
                                    0.056233098718291352],

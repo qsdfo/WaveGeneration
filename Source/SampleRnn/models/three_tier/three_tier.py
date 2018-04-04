@@ -572,6 +572,7 @@ ip_train_fn = theano.function(
     updates=ip_updates,
     on_unused_input='warn'
 )
+import pdb; pdb.set_trace()
 
 other_train_fn = theano.function(
     [sequences, big_h0, h0, reset, mask],
@@ -740,6 +741,7 @@ def monitor(data_feeder):
 print "Wall clock time spent before training started: {:.2f}h"\
         .format((time()-exp_start)/3600.)
 print "Training!"
+
 total_iters = 0
 total_time = 0.
 last_print_time = 0.
@@ -806,7 +808,6 @@ while True:
         print "[Another epoch]",
 
     seqs, reset, mask = mini_batch
-    import pdb; pdb.set_trace()
     start_time = time()
     cost, big_h0, h0 = train_fn(seqs, big_h0, h0, reset, mask)
     total_time += time() - start_time
