@@ -12,22 +12,33 @@ import tensorflow as tf
 from tensorflow.python.client import timeline
 from samplernn import SampleRnnModel, AudioReader, mu_law_decode, optimizer_factory
 
-DATA_DIRECTORY = './pinao-corpus'
+DATA_DIRECTORY = '/home/aciditeam-leo/Aciditeam/WaveGeneration/Data/contrabass_no_cond/ordinario_small'
 LOGDIR_ROOT = './logdir'
 CHECKPOINT_EVERY = 20
 NUM_STEPS = int(1e5)
 LEARNING_RATE = 1e-3
-SAMPLE_SIZE = 100000
 L2_REGULARIZATION_STRENGTH = 0
-SILENCE_THRESHOLD = 0.3
+SILENCE_THRESHOLD = 0.1
 MOMENTUM = 0.9
 MAX_TO_KEEP = 5
 
-N_SECS = 3
-SAMPLE_RATE = 16000
-LENGTH = N_SECS*SAMPLE_RATE
 
-BATCH_SIZE = 1
+BIG_FRAME_SIZE=8
+FRAME_SIZE=2        
+Q_LEVELS=256        # Quantification for the amplitude of the audio samples
+RNN_TYPE='GRU'
+DIM=1024            # Number of units in RNNs
+N_RNN=1
+SAMPLE_SIZE = 72    # Size of the total sequence on which the model is trained. Determine the number of states in the stateful rnn. Ideally = (SEQ_LEN - BIG_FRAME) * int + BIG_FRAME
+SEQ_LEN=40          # Size for one BPTT pass
+EMB_SIZE=256
+OPTIMIZER='adam'
+
+N_SECS = 3
+SAMPLE_RATE = 8000
+LENGTH = N_SECS*SAMPLE_RATE  # For generation
+
+BATCH_SIZE = 64
 NUM_GPU = 1
 
 def get_arguments():
@@ -43,17 +54,17 @@ def get_arguments():
   parser.add_argument('--sample_rate',      type=int,   default=SAMPLE_RATE)
   parser.add_argument('--l2_regularization_strength', type=float, default=L2_REGULARIZATION_STRENGTH)
   parser.add_argument('--silence_threshold',type=float, default=SILENCE_THRESHOLD)
-  parser.add_argument('--optimizer',        type=str,   default='adam', choices=optimizer_factory.keys())
+  parser.add_argument('--optimizer',        type=str,   default=OPTIMIZER, choices=optimizer_factory.keys())
   parser.add_argument('--momentum',         type=float, default=MOMENTUM)
 
-  parser.add_argument('--seq_len',          type=int, required=True)
-  parser.add_argument('--big_frame_size',   type=int, required=True)
-  parser.add_argument('--frame_size',       type=int, required=True)
-  parser.add_argument('--q_levels',         type=int, required=True)
-  parser.add_argument('--dim',              type=int, required=True)
-  parser.add_argument('--n_rnn',            type=int, choices=xrange(1,6), required=True)
-  parser.add_argument('--emb_size',         type=int, required=True)
-  parser.add_argument('--rnn_type', choices=['LSTM', 'GRU'], required=True)
+  parser.add_argument('--seq_len',          type=int, default=SEQ_LEN)
+  parser.add_argument('--big_frame_size',   type=int, default=BIG_FRAME_SIZE)
+  parser.add_argument('--frame_size',       type=int, default=FRAME_SIZE)
+  parser.add_argument('--q_levels',         type=int, default=Q_LEVELS)
+  parser.add_argument('--dim',              type=int, default=DIM)
+  parser.add_argument('--n_rnn',            type=int, choices=xrange(1,6), default=N_RNN)
+  parser.add_argument('--emb_size',         type=int, default=EMB_SIZE)
+  parser.add_argument('--rnn_type', choices=['LSTM', 'GRU'], default=RNN_TYPE)
   parser.add_argument('--max_checkpoints',  type=int, default=MAX_TO_KEEP)
   return parser.parse_args()
 
@@ -264,7 +275,6 @@ def main():
   coord = tf.train.Coordinator()
 
   with tf.name_scope('create_inputs'):
-    import pdb; pdb.set_trace()
     reader = AudioReader(args.data_dir,
                          coord,
                          sample_rate=args.sample_rate,
@@ -277,7 +287,7 @@ def main():
   optim = optimizer_factory[args.optimizer](
                   learning_rate=args.learning_rate,
                   momentum=args.momentum)
-######Multi GPU###########
+  ######Multi GPU###########
   tower_grads = []
   losses = []
   train_input_batch_rnn = []
@@ -367,7 +377,6 @@ def main():
         final_big_s.append(sess.run(net.big_initial_state))
         final_s.append(sess.run(net.initial_state))
       start_time = time.time()
-      import pdb; pdb.set_trace()
       inputslist = [sess.run(audio_batch) for i in xrange(args.num_gpus)]
       loss_sum = 0;
       idx_begin=0
