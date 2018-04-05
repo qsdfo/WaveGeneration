@@ -50,17 +50,24 @@ class SampleRnnModel(object):
     # Assume that the last dim is the 
     return tf.argmax(input_batch, axis=-1)
 
+  def _preprocess_audio_inputs(self, input_frames):
+    input_frames = (input_frames / (self.q_levels/2.0)) - 1.0
+    input_frames *= 2.0
+    return input_frames
+
   def _create_network_BigFrame(self,
     		num_steps,
     		big_frame_state,
     		big_input_sequences):
     with tf.variable_scope('BigFrame_layer'):
+      big_input_sequences_shape = big_input_sequences.get_shape()
       big_input_frames = tf.reshape(big_input_sequences,[
-                            tf.shape(big_input_sequences)[0],
-                            tf.shape(big_input_sequences)[1] / self.big_frame_size,
+                            big_input_sequences_shape[0],
+                            big_input_sequences_shape[1] / self.big_frame_size,
                             self.big_frame_size])
-      big_input_frames = (big_input_frames / self.q_levels/2.0) - 1.0
-      big_input_frames *= 2.0
+      big_input_frames = self._preprocess_audio_inputs(big_input_frames)
+
+      # Note : self.big_frame_size/self.frame_size est le ratio d'upsampling
     
       big_frame_outputs = []
       big_frame_proj_weights = tf.get_variable(
@@ -69,27 +76,38 @@ class SampleRnnModel(object):
         for time_step in range(num_steps):
           if time_step > 0: tf.get_variable_scope().reuse_variables()
           (big_frame_cell_output, big_frame_state) = self.big_cell(big_input_frames[:, time_step, :], big_frame_state)
+
+          ##########
+          ##########
+          # Ici ils utilisent une projection differente pour chaque time_step upsamplee (ce qui est fait dans l'article, pour j dans [0, r-1] representant l'upsampling : c_{(t-1)*r+j} = W_j h_t )
+          # Perhaps we can just repeat the prediction self.big_frame_size/self.frame_size times. That would speed things up a little bit
           big_frame_outputs.append(math_ops.matmul(big_frame_cell_output, big_frame_proj_weights))
+          ##########
+          ##########
+
         final_big_frame_state = big_frame_state
-      big_frame_outputs = tf.stack(big_frame_outputs) 
+      big_frame_outputs = tf.stack(big_frame_outputs)
+      # By default, stack along dimension 0... so transpose : (num_step, batch_size, proj_dim) -> (batch_size, num_step, proj_dim)
       big_frame_outputs = tf.transpose(big_frame_outputs, perm=[1, 0, 2])
+      big_frame_outputs_shape = big_frame_outputs.get_shape()
       big_frame_outputs = tf.reshape(big_frame_outputs,
-      	                             [tf.shape(big_frame_outputs)[0],
-                                      tf.shape(big_frame_outputs)[1] * self.big_frame_size/self.frame_size,
+      	                             [big_frame_outputs_shape[0],
+                                      big_frame_outputs_shape[1] * self.big_frame_size/self.frame_size,
                                      -1])
       return big_frame_outputs,final_big_frame_state
+
   def _create_network_Frame(self,
     		num_steps,
     		big_frame_outputs,
     		frame_state,
     		input_sequences):
     with tf.variable_scope('Frame_layer'):
+      input_sequences_shape = input_sequences.get_shape()
       input_frames = tf.reshape(input_sequences,[
-                        tf.shape(input_sequences)[0],
-                        tf.shape(input_sequences)[1] / self.frame_size,
+                        input_sequences_shape[0],
+                        input_sequences_shape[1] / self.frame_size,
                         self.frame_size])
-      input_frames = (input_frames / self.q_levels/2.0) - 1.0
-      input_frames *= 2.0
+      input_frames = self._preprocess_audio_inputs(input_frames)
      
       frame_outputs = []
       frame_proj_weights = tf.get_variable(
@@ -99,9 +117,12 @@ class SampleRnnModel(object):
       with tf.variable_scope("FRAME_RNN"):
         for time_step in range(num_steps):
           if time_step > 0: tf.get_variable_scope().reuse_variables()
-          cell_input = tf.reshape(input_frames[:, time_step, :],[-1,self.frame_size])
+          # Audio sample influence
+          import pdb; pdb.set_trace()
+          cell_input = input_frames[:, time_step, :]
           cell_input = math_ops.matmul(cell_input, frame_cell_proj_weights)
-          cell_input = cell_input + tf.reshape(big_frame_outputs[:, time_step, :],[-1,self.dim])
+          # Previous tier influence
+          cell_input = cell_input + big_frame_outputs[:, time_step, :]
           (frame_cell_output, frame_state) = self.cell(cell_input, frame_state)
 
           frame_outputs.append(math_ops.matmul(frame_cell_output, frame_proj_weights))
@@ -109,17 +130,20 @@ class SampleRnnModel(object):
       frame_outputs = tf.stack(frame_outputs) 
       frame_outputs = tf.transpose(frame_outputs, perm=[1, 0, 2])
 
+      frame_outputs_shape = frame_outputs.get_shape() 
       frame_outputs = tf.reshape(frame_outputs,
-      	                         [tf.shape(frame_outputs)[0],
-                                  tf.shape(frame_outputs)[1] * self.frame_size,
+      	                         [frame_outputs_shape[0],
+                                  frame_outputs_shape[1] * self.frame_size,
                                  -1])
       return frame_outputs, final_frame_state
+
   def _create_network_Sample(self,
     		frame_outputs,
     		sample_input_sequences):
     with tf.variable_scope('Sample_layer'):
-      sample_shap=[tf.shape(sample_input_sequences)[0],
-      	     tf.shape(sample_input_sequences)[1]*self.emb_size,
+      sample_input_sequences_shape = sample_input_sequences.get_shape()
+      sample_shap=[sample_input_sequences_shape[0],
+      	     sample_input_sequences_shape[1]*self.emb_size,
       	     1]
       embedding = tf.get_variable("embedding", [self.q_levels, self.emb_size])
       sample_input_sequences = embedding_ops.embedding_lookup(
@@ -187,10 +211,14 @@ class SampleRnnModel(object):
                      l2_regularization_strength=None,
                      name='sample'):
     with tf.name_scope(name):
+      # Process input
       self.encoded_input_rnn = mu_law_encode(train_input_batch_rnn, self.q_levels)
       encoded_rnn = self._one_hot(self.encoded_input_rnn)
+        
+      # Train
       raw_output, final_big_frame_state, final_frame_state = \
-      self._create_network_SampleRnn( train_big_frame_state, train_frame_state)
+        self._create_network_SampleRnn( train_big_frame_state, train_frame_state)
+
       with tf.name_scope('loss'):
         # Target
         target_output_rnn = encoded_rnn[:,self.big_frame_size:,:]
