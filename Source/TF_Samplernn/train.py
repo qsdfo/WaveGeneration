@@ -12,16 +12,15 @@ import tensorflow as tf
 from tensorflow.python.client import timeline
 from samplernn import SampleRnnModel, AudioReader, mu_law_decode, optimizer_factory
 
-DATA_DIRECTORY = '/home/aciditeam-leo/Aciditeam/WaveGeneration/Data/contrabass_no_cond/ordinario_small'
-LOGDIR_ROOT = './logdir'
-CHECKPOINT_EVERY = 20
-NUM_STEPS = int(1e5)
-LEARNING_RATE = 1e-3
-L2_REGULARIZATION_STRENGTH = 0
-SILENCE_THRESHOLD = 0.1
-MOMENTUM = 0.9
-MAX_TO_KEEP = 5
-
+DATA_DIRECTORY='/home/aciditeam-leo/Aciditeam/WaveGeneration/Data/contrabass_no_cond/ordinario_small'
+LOGDIR_ROOT='./logdir'
+CHECKPOINT_EVERY=10
+NUM_STEPS=int(1e5)
+LEARNING_RATE=1e-3
+L2_REGULARIZATION_STRENGTH=0
+SILENCE_THRESHOLD=0.1
+MOMENTUM=0.9
+MAX_TO_KEEP=5
 
 BIG_FRAME_SIZE=8
 FRAME_SIZE=2        
@@ -29,17 +28,17 @@ Q_LEVELS=256        # Quantification for the amplitude of the audio samples
 RNN_TYPE='GRU'
 DIM=1024            # Number of units in RNNs
 N_RNN=1
-SAMPLE_SIZE = 72    # Size of the total sequence on which the model is trained. Determine the number of states in the stateful rnn. Ideally = (SEQ_LEN - BIG_FRAME) * int + BIG_FRAME
-SEQ_LEN=40          # Size for one BPTT pass
+SAMPLE_SIZE=72      # Size of the total sequence on which the model is trained. Determine the number of states in the stateful rnn. Ideally = (SEQ_LEN - BIG_FRAME) * int + BIG_FRAME
+SEQ_LEN=520         # Size for one BPTT pass
 EMB_SIZE=256
 OPTIMIZER='adam'
 
-N_SECS = 3
-SAMPLE_RATE = 8000
+N_SECS=3
+SAMPLE_RATE=8000
 LENGTH = N_SECS*SAMPLE_RATE  # For generation
 
-BATCH_SIZE = 64
-NUM_GPU = 1
+BATCH_SIZE=64
+NUM_GPU=1
 
 def get_arguments():
   parser = argparse.ArgumentParser(description='SampleRnn example network')
@@ -263,7 +262,7 @@ def generate_and_save_samples(step, net, infe_para, sess):
     inp = samples[i].reshape([-1,1]).tolist()
     out = sess.run(infe_para['infe_decode'], 
 		feed_dict={infe_para['infe_sample_decode_inp']: inp})
-    write_wav(out, 16000, './test_'+str(step)+'_'+str(i)+'.wav')
+    write_wav(out, 16000, './test_wav/'+str(step)+'_'+str(i)+'.wav')
     if i >= 10:
       break
       
