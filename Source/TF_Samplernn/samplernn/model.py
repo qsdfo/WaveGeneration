@@ -55,6 +55,18 @@ class SampleRnnModel(object):
     input_frames *= 2.0
     return input_frames
 
+  def _upsampling_reshape(list_frames, upsampling_ratio):
+    """Take as input a list of upsampled tensor and reshape them to fit witht the frame_size of the next level
+    """
+    x = tf.stack(list_frames)
+    # By default, stack along dimension 0... so transpose : (num_step, batch_size, proj_dim) -> (batch_size, num_step, proj_dim)
+    x = tf.transpose(x, perm=[1, 0, 2])
+    x_shape = x.get_shape()
+    x = tf.reshape(x,
+     [x_shape[0],
+      x_shape[1] * upsampling_ratio,
+     -1])
+
   def _create_network_BigFrame(self,
     		num_steps,
     		big_frame_state,
@@ -86,14 +98,7 @@ class SampleRnnModel(object):
           ##########
 
         final_big_frame_state = big_frame_state
-      big_frame_outputs = tf.stack(big_frame_outputs)
-      # By default, stack along dimension 0... so transpose : (num_step, batch_size, proj_dim) -> (batch_size, num_step, proj_dim)
-      big_frame_outputs = tf.transpose(big_frame_outputs, perm=[1, 0, 2])
-      big_frame_outputs_shape = big_frame_outputs.get_shape()
-      big_frame_outputs = tf.reshape(big_frame_outputs,
-      	                             [big_frame_outputs_shape[0],
-                                      big_frame_outputs_shape[1] * self.big_frame_size/self.frame_size,
-                                     -1])
+      big_frame_outputs = _upsampling_reshape(big_frame_outputs, self.big_frame_size/self.frame_size)
       return big_frame_outputs,final_big_frame_state
 
   def _create_network_Frame(self,
@@ -118,7 +123,6 @@ class SampleRnnModel(object):
         for time_step in range(num_steps):
           if time_step > 0: tf.get_variable_scope().reuse_variables()
           # Audio sample influence
-          import pdb; pdb.set_trace()
           cell_input = input_frames[:, time_step, :]
           cell_input = math_ops.matmul(cell_input, frame_cell_proj_weights)
           # Previous tier influence
@@ -127,14 +131,8 @@ class SampleRnnModel(object):
 
           frame_outputs.append(math_ops.matmul(frame_cell_output, frame_proj_weights))
       final_frame_state = frame_state
-      frame_outputs = tf.stack(frame_outputs) 
-      frame_outputs = tf.transpose(frame_outputs, perm=[1, 0, 2])
-
-      frame_outputs_shape = frame_outputs.get_shape() 
-      frame_outputs = tf.reshape(frame_outputs,
-      	                         [frame_outputs_shape[0],
-                                  frame_outputs_shape[1] * self.frame_size,
-                                 -1])
+      import pdb; pdb.set_trace()
+      frame_outputs = _upsampling_reshape(frame_outputs, self.frame_size)   # Actually self.frame_size / 1 as the upsampling ratio of the last level is 1
       return frame_outputs, final_frame_state
 
   def _create_network_Sample(self,
