@@ -32,25 +32,6 @@ class SampleRnnModel(object):
     self.initial_state   = self.cell.zero_state(self.batch_size, tf.float32)
     self.big_initial_state   = self.big_cell.zero_state(self.batch_size, tf.float32)
 
-  def _one_hot(self, input_batch):
-    '''One-hot encodes the waveform amplitudes.
-
-    This allows the definition of the network as a categorical distribution
-    over a finite set of possible amplitudes.
-    '''
-    with tf.name_scope('one_hot_encode'):
-      encoded = tf.one_hot(
-          input_batch,
-          depth=self.q_levels,
-          dtype=tf.float32)
-      shape = [self.batch_size, -1, self.q_levels]
-      encoded = tf.reshape(encoded, shape)
-    return encoded
-
-  def _decode_one_hot(self, input_batch):
-    # Assume that the last dim is the 
-    return tf.argmax(input_batch, axis=-1)
-
   def _preprocess_audio_inputs(self, input_frames):
     input_frames = (input_frames / (self.q_levels/2.0)) - 1.0
     input_frames *= 2.0
