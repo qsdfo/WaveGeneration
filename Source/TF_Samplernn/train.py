@@ -32,14 +32,14 @@ N_RNN=1
 SAMPLE_SIZE=4104    # Size of the total sequence on which the model is trained. Determine the number of states in the stateful rnn. Ideally = (SEQ_LEN - BIG_FRAME) * int + BIG_FRAME
 SEQ_LEN=520         # Size for one BPTT pass
 EMB_SIZE=256
-AUTOREGRESSIVE_ORDER=3
+AUTOREGRESSIVE_ORDER=2
 OPTIMIZER='adam'
 
 N_SECS=3
 SAMPLE_RATE=8000
 LENGTH = N_SECS*SAMPLE_RATE  # For generation
 
-BATCH_SIZE=64
+BATCH_SIZE=256
 NUM_GPU=1
 
 def get_arguments():
@@ -275,11 +275,15 @@ def main():
 	args = get_arguments()
 	if args.l2_regularization_strength == 0:
 			args.l2_regularization_strength = None
-	identifier = str(random.randint(1,100000))
+	# identifier = str(random.randint(1,100000))
+	identifier = "0"
 	print("Identifier: {}".format(identifier))
 	logdir = os.path.join(args.logdir_root, identifier)
 	coord = tf.train.Coordinator()
 
+	##############################
+	# Read data
+	import time; ttt=time.time()
 	with tf.name_scope('create_inputs'):
 		reader = AudioReader(args.data_dir,
 												 coord,
@@ -287,13 +291,30 @@ def main():
 												 sample_size=args.sample_size,
 												 silence_threshold=args.silence_threshold)
 		audio_batch = reader.dequeue(args.batch_size)
+	print("Read data time : {}".format(time.time()-ttt))
+	##############################
+
+	##############################	
+	# Create network
+	ttt = time.time()
 	net =  create_model(args)
+	print("Instanciate network : {}".format(time.time()-ttt))
+	##############################
+
+	##############################	
+	# Init optimizer and declare variable
+	ttt = time.time()
 	global_step = tf.get_variable('global_step', 
 				[], initializer = tf.constant_initializer(0), trainable=False)
 	optim = optimizer_factory[args.optimizer](
 									learning_rate=args.learning_rate,
 									momentum=args.momentum)
-	######Multi GPU###########
+	print("Initialize graph's variables : {}".format(time.time()-ttt))
+	##############################
+
+	##############################	
+	# Compute nodes doing the  GPU shit
+	ttt = time.time()
 	tower_grads = []
 	losses = []
 	train_input_batch_rnn = []
@@ -301,13 +322,17 @@ def main():
 	train_frame_state = []
 	final_big_frame_state = []
 	final_frame_state = []
+	cond = []
 	for i in xrange(args.num_gpus):
-		train_input_batch_rnn.append(tf.Variable( tf.zeros([net.batch_size, net.seq_len,1]), 
+		train_input_batch_rnn.append(tf.Variable( tf.zeros([net.batch_size, net.seq_len, 1]), 
 											trainable=False ,name="input_batch_rnn", dtype=tf.float32))
 		train_big_frame_state.append(net.big_cell.zero_state(net.batch_size, tf.float32))
 		final_big_frame_state.append(net.big_cell.zero_state(net.batch_size, tf.float32))
 		train_frame_state.append    (net.cell.zero_state(net.batch_size, tf.float32))
 		final_frame_state.append    (net.cell.zero_state(net.batch_size, tf.float32))
+		cond.append(tf.Variable(tf.zeros([net.batch_size, net.seq_len, 1], dtype=tf.int32), 
+								trainable=False,
+								name="cond"))
 	with tf.variable_scope(tf.get_variable_scope()):
 		for i in xrange(args.num_gpus):
 			with tf.device('/gpu:%d' % i):
@@ -320,7 +345,7 @@ def main():
 						train_input_batch_rnn[i],
 						train_big_frame_state[i],
 						train_frame_state[i],
-											l2_regularization_strength=args.l2_regularization_strength)
+						l2_regularization_strength=args.l2_regularization_strength)
 					tf.get_variable_scope().reuse_variables()
 					losses.append(loss)
 					# Reuse variables for the next tower.
@@ -336,15 +361,25 @@ def main():
 	for name in grad_vars:  
 		print(name) 
 	apply_gradient_op = optim.apply_gradients(grad_vars, global_step=global_step) 
-	#################
-	infe_para = create_gen_wav_para(net)
+	print("Compute nodes doing the  GPU shit : {}".format(time.time()-ttt))
+	##############################
 
+	##############################
+	# Generation netword
+	ttt = time.time()
+	infe_para = create_gen_wav_para(net)
+	print("## Instanciate generation net : {}".format(time.time()-ttt))
+	##############################
+
+	##############################
+	# Various shit
+	ttt = time.time()
 	writer = tf.summary.FileWriter(logdir)
 	writer.add_graph(tf.get_default_graph())
 	#run_metadata = tf.RunMetadata()
 	summaries = tf.summary.merge_all()
 
-	tf_config = tf.ConfigProto(allow_soft_placement=True,log_device_placement=False)
+	tf_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
 	tf_config.gpu_options.allow_growth = True
 	sess = tf.Session(config=tf_config)
 
@@ -352,7 +387,12 @@ def main():
 	sess.run(init)
 
 	saver = tf.train.Saver(var_list=tf.trainable_variables(), max_to_keep=args.max_checkpoints)
+	print("Various shit : {}".format(time.time()-ttt))
+	##############################
 
+	##############################
+	# Load previously trained model
+	ttt = time.time()
 	try:
 		saved_global_step = load(saver, sess, logdir)
 		if saved_global_step is None:
@@ -365,10 +405,16 @@ def main():
 				"We will terminate training to avoid accidentally overwriting "
 				"the previous model.")
 		raise
+	print("Load previously trained model : {}".format(time.time()-ttt))
+	##############################
 
-
+	##############################
+	# Stuffs
+	ttt=time.time()
 	threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 	reader.start_threads(sess)
+	print("Start queue threads : {}".format(time.time()-ttt))
+	##############################
 
 	step = None
 	last_saved_step = saved_global_step
@@ -377,15 +423,32 @@ def main():
 			if (step-1) % 20 == 0 and step>20:
 				generate_and_save_samples(step,net, infe_para, sess)
 
+			##############################
+			# Initialize the stateful RNN
+			import time; ttt=time.time()
 			final_big_s = []
 			final_s = []
 			for g in xrange(args.num_gpus):
 				final_big_s.append(sess.run(net.big_initial_state))
 				final_s.append(sess.run(net.initial_state))
+			print("Initialize the stateful RNN : {}".format(time.time()-ttt))
+			##############################
+			
 			start_time = time.time()
+			
+			##############################
+			# Read data from GPU to CPU... WTF ???
+			import time; ttt=time.time()
 			inputslist = [sess.run(audio_batch) for i in xrange(args.num_gpus)]
-			loss_sum = 0;
-			idx_begin=0
+			import pdb; pdb.set_trace()
+			print("Read data from GPU to CPU... WTF ??? : {}".format(time.time()-ttt))
+			##############################
+
+			##############################
+			# Infer some dimensions parameters			
+			import time; ttt=time.time()
+			loss_sum = 0
+			idx_begin = 0
 			audio_length = args.sample_size - args.big_frame_size
 			bptt_length = args.seq_len - args.big_frame_size
 			stateful_rnn_length = audio_length/bptt_length 
@@ -394,7 +457,13 @@ def main():
 						 apply_gradient_op, \
 						 final_big_frame_state, \
 			 final_frame_state]
+			print("Infer some dimensions parameters : {}".format(time.time()-ttt))
+			##############################
+
 			for i in range(0, stateful_rnn_length):
+				##############################
+				# Write data in input ict
+				import time; ttt=time.time()
 				inp_dict={}
 				for g in xrange(args.num_gpus):
 					inp_dict[train_input_batch_rnn[g]] = \
@@ -402,13 +471,28 @@ def main():
 					inp_dict[train_big_frame_state[g]] = final_big_s[g]
 					inp_dict[train_frame_state[g]] = final_s[g]
 				idx_begin += args.seq_len-args.big_frame_size
+				print("Write data in input dict".format(time.time()-ttt))
+				##############################
 
+				##############################
+				# Run
+				import time; ttt=time.time()
 				summary, loss_gpus,_, final_big_s, final_s= \
 					sess.run(outp_list, feed_dict=inp_dict)
+				print("Run : {}".format(time.time() - ttt))
+				import pdb; pdb.set_trace()
+				##############################
+
+				##############################
+				# Write summaries
+				import time; ttt=time.time()
 				writer.add_summary(summary, step)
 				for g in xrange(args.num_gpus):
 					loss_gpu = loss_gpus[g]/stateful_rnn_length
 					loss_sum += loss_gpu/args.num_gpus
+				print("Write summaries : {}".format(time.time()-ttt))
+				import pdb; pdb.set_trace()
+				##############################
 			duration = time.time() - start_time
 			print('step {:d} - loss = {:.3f}, ({:.3f} sec/step)'
 						.format(step, loss_sum, duration))
