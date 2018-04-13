@@ -122,30 +122,30 @@ def create_model(args):
 # 		infe_para = dict()
 # 		infe_para['infe_big_frame_inp'] = \
 # 			tf.get_variable("infe_big_frame_inp", 
-# 				[net.batch_size, net.big_frame_size,1], dtype=tf.float32)
+# 				[args.batch_size, net.big_frame_size,1], dtype=tf.float32)
 # 		infe_para['infe_big_frame_outp'] = \
 # 			tf.get_variable("infe_big_frame_outp", 
-# 				[net.batch_size, net.big_frame_size/net.frame_size, net.dim], dtype=tf.float32)
+# 				[args.batch_size, net.big_frame_size/net.frame_size, net.dim], dtype=tf.float32)
 
 # 		infe_para['infe_big_frame_outp_slices'] = \
 # 			tf.get_variable("infe_big_frame_outp_slices", 
-# 				[net.batch_size, 1, net.dim], dtype=tf.float32)
+# 				[args.batch_size, 1, net.dim], dtype=tf.float32)
 # 		infe_para['infe_frame_inp'] = \
 # 			tf.get_variable("infe_frame_inp", 
-# 				[net.batch_size, net.frame_size,1], dtype=tf.float32)
+# 				[args.batch_size, net.frame_size,1], dtype=tf.float32)
 # 		infe_para['infe_frame_outp'] = \
 # 			tf.get_variable("infe_frame_outp", 
-# 				[net.batch_size, net.frame_size, net.dim], dtype=tf.float32)
+# 				[args.batch_size, net.frame_size, net.dim], dtype=tf.float32)
 
 # 		infe_para['infe_frame_outp_slices'] = \
 # 			tf.get_variable("infe_frame_outp_slices", 
-# 				[net.batch_size, 1, net.dim], dtype=tf.float32)
+# 				[args.batch_size, 1, net.dim], dtype=tf.float32)
 # 		infe_para['infe_sample_inp'] = \
 # 			tf.get_variable("infe_sample_inp", 
-# 				[net.batch_size, net.autoregressive_order,1], dtype=tf.int32)
+# 				[args.batch_size, net.autoregressive_order,1], dtype=tf.int32)
 
-# 		infe_para['infe_big_frame_state'] = net.big_cell.zero_state(net.batch_size, tf.float32)
-# 		infe_para['infe_frame_state']     = net.cell.zero_state(net.batch_size, tf.float32)
+# 		infe_para['infe_big_frame_state'] = net.big_cell.zero_state(args.batch_size, tf.float32)
+# 		infe_para['infe_frame_state']     = net.cell.zero_state(args.batch_size, tf.float32)
 
 # 		tf.get_variable_scope().reuse_variables()
 # 		infe_para['infe_big_frame_outp'], \
@@ -184,7 +184,7 @@ def write_wav(waveform, sample_rate, filename):
 	print('Updated wav file at {}'.format(filename))
 
 def generate_and_save_samples(step, length, net, infe_para, sess):
-	samples = np.zeros((net.batch_size, length, 1), dtype='int32')
+	samples = np.zeros((args.batch_size, length, 1), dtype='int32')
 	samples[:, :net.big_frame_size,:] = np.int32(net.q_levels//2)
 
 	final_big_s,final_s = sess.run([net.big_initial_state,net.initial_state])
@@ -227,7 +227,7 @@ def generate_and_save_samples(step, length, net, infe_para, sess):
 					np.arange(net.q_levels), p=row )
 			sample_next_list.append(sample_next)
 		samples[:, t] = np.array(sample_next_list).reshape([-1,1])
-	for i in range(0, net.batch_size):
+	for i in range(0, args.batch_size):
 		inp = samples[i].reshape([-1,1]).tolist()
 		out = sess.run(infe_para['infe_decode'], 
 		feed_dict={infe_para['infe_sample_decode_inp']: inp})
@@ -270,27 +270,25 @@ def main():
 	##############################
 
 	##############################	
-	# Instanciate input nodes and get intermediate nodes for stateful RNNs
+	# Placeholders
 	ttt = time.time()
-	train_input_batch_rnn = tf.Variable(tf.zeros([net.batch_size, net.seq_len, 1]), 
-										trainable=False ,name="input_batch_rnn", dtype=tf.float32)
-	train_big_frame_state = net.big_cell.zero_state(net.batch_size, tf.float32)
-	final_big_frame_state = net.big_cell.zero_state(net.batch_size, tf.float32)
-	train_frame_state = net.cell.zero_state(net.batch_size, tf.float32)
-	final_frame_state = net.cell.zero_state(net.batch_size, tf.float32)
+	train_input_batch_rnn_PH = tf.placeholder(tf.float32, shape=(None, net.seq_len, 1), name="input_batch_rnn")
+	train_big_frame_state_PH = tf.placeholder(tf.float32, name="train_big_frame_state")
+	train_frame_state_PH = tf.placeholder(tf.float32, name="train_frame_state")
 	##############################
 
 	##############################
 	# Compute losses
-	loss,\
-	final_big_frame_state,\
-	final_frame_state = net.loss_SampleRnn(
-		train_input_batch_rnn,
-		train_big_frame_state,
-		train_frame_state,
+	loss_N,\
+	final_big_frame_state_N,\
+	final_frame_state_N = net.loss_SampleRnn(
+		train_input_batch_rnn_PH,
+		train_big_frame_state_PH,
+		train_frame_state_PH,
 		l2_regularization_strength=args.l2_regularization_strength)
 
-	apply_gradient_op = optim.minimize(loss)
+	#>>
+	apply_gradient_op_N = optim.minimize(loss_N)
 	# grad_vars = optim.compute_gradients(loss, tf.trainable_variables())
 	# grads, vars = zip(*grad_vars)
 	# grads_clipped, _ = tf.clip_by_global_norm(grads, 5.0)
@@ -299,6 +297,7 @@ def main():
 	# for name in grad_vars:  
 	# 	print(name) 
 	# apply_gradient_op = optim.apply_gradients(grad_vars, global_step=global_step) 
+	#>>
 	print("TTT: Create loss and grads nodes : {}".format(time.time()-ttt))
 	##############################
 
@@ -317,8 +316,7 @@ def main():
 	writer = tf.summary.FileWriter(logdir)
 	writer.add_graph(tf.get_default_graph())
 
-	summaries = tf.summary.merge_all()
-	import pdb; pdb.set_trace()
+	summaries_N = tf.summary.merge_all()
 
 	with tf.Session() as sess:
 		
@@ -358,8 +356,8 @@ def main():
 				##############################
 				# Initialize the stateful RNN
 				import time; ttt=time.time()
-				final_big_s = sess.run(net.big_initial_state)
-				final_s = sess.run(net.initial_state)
+				final_big_s = np.zeros((args.batch_size), dtype=np.float32)
+				final_s = np.zeros((args.batch_size), dtype=np.float32)
 				print("TTT: Initialize the stateful RNN : {}".format(time.time()-ttt))
 				##############################
 				
@@ -369,7 +367,7 @@ def main():
 				# Read data from GPU to CPU... WTF ???
 				import time; ttt=time.time()
 				#### Here asynchronously load (batch, dimen, 1) matrices
-				train_matrix, chunk_counter = load_mat(chunk_list, net.batch_size, chunk_counter)
+				train_matrix, chunk_counter = load_mat(chunk_list, args.batch_size, chunk_counter)
 				print("TTT: Load training data : {}".format(time.time()-ttt))
 				##############################
 
@@ -381,11 +379,11 @@ def main():
 				audio_length = params_data["sample_size"] - args.big_frame_size
 				bptt_length = args.seq_len - args.big_frame_size
 				stateful_rnn_length = audio_length/bptt_length 
-				outp_list=[summaries,\
-					loss, \
-				 	apply_gradient_op, \
-				 	final_big_frame_state, \
-				 	final_frame_state]
+				outp_list=[summaries_N,\
+					loss_N, \
+				 	apply_gradient_op_N, \
+				 	final_big_frame_state_N, \
+				 	final_frame_state_N]
 				print("TTT: Infer some dimensions parameters : {}".format(time.time()-ttt))
 				##############################
 
@@ -394,9 +392,9 @@ def main():
 					# Write data in input ict
 					import time; ttt=time.time()
 					inp_dict={}
-					inp_dict[train_input_batch_rnn] = train_matrix[:, idx_begin: idx_begin+args.seq_len,:]
-					inp_dict[train_big_frame_state] = final_big_s
-					inp_dict[train_frame_state] = final_s
+					inp_dict[train_input_batch_rnn_PH] = train_matrix[:, idx_begin: idx_begin+args.seq_len,:]
+					inp_dict[train_big_frame_state_PH] = final_big_s
+					inp_dict[train_frame_state_PH] = final_s
 					idx_begin += args.seq_len-args.big_frame_size
 					print("TTT: Write data in input dict : {}".format(time.time()-ttt))
 					##############################
@@ -405,8 +403,7 @@ def main():
 					# Run
 					import pdb; pdb.set_trace()
 					import time; ttt=time.time()
-					summary, loss_computed, _, final_big_s, final_s= \
-						sess.run(outp_list, feed_dict=inp_dict)
+					summary, loss, _, final_big_s, final_s= sess.run(outp_list, feed_dict=inp_dict)
 					print("Run : {}".format(time.time() - ttt))
 					import pdb; pdb.set_trace()
 					##############################
@@ -415,12 +412,12 @@ def main():
 					# Write summaries
 					import time; ttt=time.time()
 					writer.add_summary(summary, step)
-					loss_computed_norm = loss_computed/stateful_rnn_length
+					loss_norm = loss/stateful_rnn_length
 					print("TTT: Write summaries : {}".format(time.time()-ttt))
 					##############################
 				duration = time.time() - start_time
 				print('step {:d} - loss = {:.3f}, ({:.3f} sec/step)'
-							.format(step, loss_computed_norm, duration))
+							.format(step, loss_norm, duration))
 
 				if step % args.checkpoint_every == 0:
 					save(saver, sess, logdir, step)
