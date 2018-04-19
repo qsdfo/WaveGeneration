@@ -1,4 +1,3 @@
-from __future__ import print_function
 import argparse
 from datetime import datetime
 import json
@@ -55,7 +54,7 @@ def get_arguments():
 	parser.add_argument('--sample_rate',      type=int,   default=SAMPLE_RATE)
 	parser.add_argument('--l2_regularization_strength', type=float, default=L2_REGULARIZATION_STRENGTH)
 	parser.add_argument('--silence_threshold',type=float, default=SILENCE_THRESHOLD)
-	parser.add_argument('--optimizer',        type=str,   default=OPTIMIZER, choices=optimizer_factory.keys())
+	parser.add_argument('--optimizer',        type=str,   default=OPTIMIZER, choices=list(optimizer_factory.keys()))
 	parser.add_argument('--momentum',         type=float, default=MOMENTUM)
 
 	parser.add_argument('--seq_len',          type=int, default=SEQ_LEN)
@@ -63,7 +62,7 @@ def get_arguments():
 	parser.add_argument('--frame_size',       type=int, default=FRAME_SIZE)
 	parser.add_argument('--q_levels',         type=int, default=Q_LEVELS)
 	parser.add_argument('--dim',              type=int, default=DIM)
-	parser.add_argument('--n_rnn',            type=int, choices=xrange(1,6), default=N_RNN)
+	parser.add_argument('--n_rnn',            type=int, choices=list(range(1,6)), default=N_RNN)
 	parser.add_argument('--emb_size',         type=int, default=EMB_SIZE)
 	parser.add_argument('--autoregressive_order', type=int, default=AUTOREGRESSIVE_ORDER)
 	parser.add_argument('--rnn_type', choices=['LSTM', 'GRU'], default=RNN_TYPE)
@@ -227,7 +226,7 @@ def generate_and_save_samples(step, net, infe_para, sess):
 	big_frame_out = None
 	frame_out = None
 	sample_out = None
-	for t in xrange(net.big_frame_size, LENGTH):
+	for t in range(net.big_frame_size, LENGTH):
 		#big frame 
 		if t % net.big_frame_size == 0:
 			big_frame_out = None
@@ -354,9 +353,9 @@ def main():
 					aggregation_method=tf.AggregationMethod.EXPERIMENTAL_ACCUMULATE_N)
 					tower_grads.append(gradients)
 	grad_vars = average_gradients(tower_grads)
-	grads, vars = zip(*grad_vars)
+	grads, vars = list(zip(*grad_vars))
 	grads_clipped, _ = tf.clip_by_global_norm(grads, 5.0)
-	grad_vars = zip(grads_clipped, vars)
+	grad_vars = list(zip(grads_clipped, vars))
 
 	for name in grad_vars:  
 		print(name) 

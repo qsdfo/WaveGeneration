@@ -4,16 +4,16 @@ import librosa
 import os
 import random
 import shutil
-import cPickle as pkl
+import pickle as pkl
 import numpy as np
 import progressbar
 
 
 def randomize_files(files):
-  files_idx= [i for i in xrange(len(files))]
+  files_idx = [i for i in range(len(files))]
   random.shuffle(files_idx)
 
-  for idx in xrange(len(files)):
+  for idx in range(len(files)):
     yield files[files_idx[idx]]
 
 
@@ -41,7 +41,6 @@ def trim_silence(audio, threshold):
   energy = librosa.feature.rmse(audio)
   frames = np.nonzero(energy > threshold)
   indices = librosa.core.frames_to_samples(frames)[1]
-  import pdb; pdb.set_trace()
   # Note: indices can be an empty array, if the whole audio was silence.
   return audio[indices[0]:indices[-1]] if indices.size else audio[0:0]
 
@@ -66,9 +65,7 @@ def main(audio_dir, save_dir, sample_rate, sample_size=None, silence_threshold=N
 			audio = trim_silence(audio[:, 0], silence_threshold)
 			audio = audio.reshape(-1, 1)
 			if audio.size == 0:
-				print("Warning: " + filename + " was ignored as it contains only "
-					"silence. Consider decreasing trim_silence "
-					"threshold, or adjust volume of the audio.").format()
+				print(("Warning: " + filename + " was ignored as it contains only silence. Consider decreasing trim_silence threshold, or adjust volume of the audio.").format())
 			pad_elements = sample_size - 1 - (audio.shape[0] + sample_size - 1) % sample_size
 			audio = np.concatenate([audio,
 				np.full((pad_elements, 1), 0.0, dtype='float32')],
@@ -84,7 +81,7 @@ def main(audio_dir, save_dir, sample_rate, sample_size=None, silence_threshold=N
 	return
 
 if __name__ == '__main__':
-	audio_dir='/home/leo/WaveGeneration/Data/contrabass_no_cond/ordinario' 
+	audio_dir='/Users/leo/Recherche/WaveGeneration/Data/contrabass_no_cond/ordinario_xs'
 	sample_rate=8000
 	sample_size=2**14+8
 	silence_threshold=0.01

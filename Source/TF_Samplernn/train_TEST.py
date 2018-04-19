@@ -1,4 +1,3 @@
-from __future__ import print_function
 import argparse
 from datetime import datetime
 import json
@@ -7,7 +6,7 @@ import random
 import sys
 import shutil
 import time
-import cPickle as pkl
+import pickle as pkl
 
 import librosa
 import numpy as np
@@ -18,7 +17,8 @@ from samplernn import SampleRnnModel, AudioReader, mu_law_decode, optimizer_fact
 
 from asynchronous_load_mat import load_mat
 
-DATA_DIRECTORY='/home/leo/WaveGeneration/Data/contrabass_no_cond/ordinario/8000_4104_0.01'
+# DATA_DIRECTORY='/home/leo/WaveGeneration/Data/contrabass_no_cond/ordinario/8000_4104_0.01'
+DATA_DIRECTORY="/Users/leo/Recherche/WaveGeneration/Data/contrabass_no_cond/ordinario_xs/8000_16392_0.01"
 LOGDIR_ROOT='./logdir'
 CHECKPOINT_EVERY=10
 NUM_STEPS=int(1e5)
@@ -54,7 +54,7 @@ def get_arguments():
 	parser.add_argument('--num_steps',        type=int,   default=NUM_STEPS)
 	parser.add_argument('--learning_rate',    type=float, default=LEARNING_RATE)
 	parser.add_argument('--l2_regularization_strength', type=float, default=L2_REGULARIZATION_STRENGTH)	
-	parser.add_argument('--optimizer',        type=str,   default=OPTIMIZER, choices=optimizer_factory.keys())
+	parser.add_argument('--optimizer',        type=str,   default=OPTIMIZER, choices=list(optimizer_factory.keys()))
 	parser.add_argument('--momentum',         type=float, default=MOMENTUM)
 
 	parser.add_argument('--seq_len',          type=int, default=SEQ_LEN)
@@ -62,7 +62,7 @@ def get_arguments():
 	parser.add_argument('--frame_size',       type=int, default=FRAME_SIZE)
 	parser.add_argument('--q_levels',         type=int, default=Q_LEVELS)
 	parser.add_argument('--dim',              type=int, default=DIM)
-	parser.add_argument('--n_rnn',            type=int, choices=xrange(1,6), default=N_RNN)
+	parser.add_argument('--n_rnn',            type=int, choices=list(range(1,6)), default=N_RNN)
 	parser.add_argument('--emb_size',         type=int, default=EMB_SIZE)
 	parser.add_argument('--autoregressive_order', type=int, default=AUTOREGRESSIVE_ORDER)
 	parser.add_argument('--rnn_type', choices=['LSTM', 'GRU'], default=RNN_TYPE)
@@ -174,7 +174,7 @@ def generate_and_save_samples(step, length, num_example_generated, net, gen_inpu
 	frame_out = None
 	sample_out = None
 	
-	for t in xrange(net.big_frame_size, length):
+	for t in range(net.big_frame_size, length):
 		#big frame 
 		if t % net.big_frame_size == 0:
 			big_frame_out = None
@@ -258,9 +258,7 @@ def main():
 
 	##############################
 	# Compute losses
-	loss_N,\
-	final_big_frame_state_N,\
-	final_frame_state_N = net.loss_SampleRnn(
+	loss_N, final_big_frame_state_N, final_frame_state_N = net.loss_SampleRnn(
 		train_input_batch_rnn_PH,
 		big_frame_state_PH,
 		frame_state_PH,
@@ -268,9 +266,9 @@ def main():
 		l2_regularization_strength=args.l2_regularization_strength)
 
 	grad_vars = optim.compute_gradients(loss_N, tf.trainable_variables())
-	grads, vars = zip(*grad_vars)
+	grads, vars = list(zip(*grad_vars))
 	grads_clipped, _ = tf.clip_by_global_norm(grads, 5.0)
-	grad_vars = zip(grads_clipped, vars)
+	grad_vars = list(zip(grads_clipped, vars))
 
 	for name in grad_vars:  
 		print(name) 
@@ -345,9 +343,8 @@ def main():
 				##############################
 				# Get train batch
 				train_matrix, chunk_counter = load_mat(chunk_list, args.batch_size, chunk_counter)
-				mean_abs = np.mean(np.absolute(train_matrix))
-				print(mean_abs)
-				import pdb; pdb.set_trace()
+				# mean_abs = np.mean(np.absolute(train_matrix))
+				# print(mean_abs)
 				##############################
 
 				##############################
@@ -356,7 +353,7 @@ def main():
 				idx_begin = 0
 				audio_length = params_data["sample_size"] - args.big_frame_size
 				bptt_length = args.seq_len - args.big_frame_size
-				stateful_rnn_length = audio_length/bptt_length 
+				stateful_rnn_length = audio_length//bptt_length 
 				outp_list=[summaries_N,\
 					loss_N, \
 				 	apply_gradient_op_N, \
