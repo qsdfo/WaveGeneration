@@ -41,7 +41,7 @@ def trim_silence(audio, threshold):
   energy = librosa.feature.rmse(audio)
   frames = np.nonzero(energy > threshold)
   indices = librosa.core.frames_to_samples(frames)[1]
-
+  import pdb; pdb.set_trace()
   # Note: indices can be an empty array, if the whole audio was silence.
   return audio[indices[0]:indices[-1]] if indices.size else audio[0:0]
 
@@ -58,37 +58,35 @@ def main(audio_dir, save_dir, sample_rate, sample_size=None, silence_threshold=N
 		shutil.rmtree(chunk_dir)
 	os.makedirs(chunk_dir)
 
-	i = 0
-	with progressbar.ProgressBar(max_value=len(files)) as bar:
-		for audio_copy,filename in iterator:
-			audio = copy.deepcopy(audio_copy)
+	for audio_copy,filename in progressbar.progressbar(iterator):
+		audio = copy.deepcopy(audio_copy)
+	
+		if silence_threshold is not None:
+			# Remove silence
+			audio = trim_silence(audio[:, 0], silence_threshold)
+			audio = audio.reshape(-1, 1)
+			if audio.size == 0:
+				print("Warning: " + filename + " was ignored as it contains only "
+					"silence. Consider decreasing trim_silence "
+					"threshold, or adjust volume of the audio.").format()
+			pad_elements = sample_size - 1 - (audio.shape[0] + sample_size - 1) % sample_size
+			audio = np.concatenate([audio,
+				np.full((pad_elements, 1), 0.0, dtype='float32')],
+				axis=0)
 
-			if silence_threshold is not None:
-				# Remove silence
-				audio = trim_silence(audio[:, 0], silence_threshold)
-				audio = audio.reshape(-1, 1)
-				if audio.size == 0:
-					print("Warning: " + filename + " was ignored as it contains only "
-						"silence. Consider decreasing trim_silence "
-						"threshold, or adjust volume of the audio.").format()
-				pad_elements = sample_size - 1 - (audio.shape[0] + sample_size - 1) % sample_size
-				audio = np.concatenate([audio,
-					np.full((pad_elements, 1), 0.0, dtype='float32')],
-					axis=0)
-
-			while len(audio) >= sample_size:
-				piece = audio[:sample_size, :]
-				# Save piece
-				np.save(os.path.join(chunk_dir, str(chunk_index)),piece)
-				audio = audio[sample_size:, :]
-				chunk_index += 1
-	        bar.update(i)
-	        i+=1
+		while len(audio) >= sample_size:
+			piece = audio[:sample_size, :]
+			# Save piece
+			np.save(os.path.join(chunk_dir, str(chunk_index)),piece)
+			audio = audio[sample_size:, :]
+			chunk_index += 1
+	
+	return
 
 if __name__ == '__main__':
-	audio_dir='/home/aciditeam-leo/Aciditeam/WaveGeneration/Data/contrabass_no_cond/ordinario' 
+	audio_dir='/home/leo/WaveGeneration/Data/contrabass_no_cond/ordinario' 
 	sample_rate=8000
-	sample_size=4104
+	sample_size=2**14+8
 	silence_threshold=0.01
 
 	# Save these parameters

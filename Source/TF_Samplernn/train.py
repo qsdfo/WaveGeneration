@@ -13,7 +13,7 @@ import tensorflow as tf
 from tensorflow.python.client import timeline
 from samplernn import SampleRnnModel, AudioReader, mu_law_decode, optimizer_factory
 
-DATA_DIRECTORY='/home/aciditeam-leo/Aciditeam/WaveGeneration/Data/ordinario_xs'
+DATA_DIRECTORY='/home/leo/WaveGeneration/Data/ordinario_xs'
 LOGDIR_ROOT='./logdir'
 CHECKPOINT_EVERY=10
 NUM_STEPS=int(1e5)
@@ -35,7 +35,7 @@ EMB_SIZE=256
 AUTOREGRESSIVE_ORDER=2
 OPTIMIZER='adam'
 
-N_SECS=3
+N_SECS=1
 SAMPLE_RATE=8000
 LENGTH = N_SECS*SAMPLE_RATE  # For generation
 
@@ -420,8 +420,8 @@ def main():
 	last_saved_step = saved_global_step
 	try:
 		for step in range(saved_global_step + 1, args.num_steps):
-			if (step-1) % 20 == 0 and step>20:
-				generate_and_save_samples(step,net, infe_para, sess)
+			# if (step-1) % 20 == 0 and step>20:
+			generate_and_save_samples(step,net, infe_para, sess)
 
 			##############################
 			# Initialize the stateful RNN
