@@ -8,7 +8,7 @@ from keras.layers.recurrent import GRU
 from keras.layers import Dense, Dropout
 
 class SampleRnnModel(object):
-	def __init__(self, batch_size, big_frame_size, frame_size,
+	def __init__(self, big_frame_size, frame_size,
 		q_levels, rnn_type, dim, n_rnn, emb_size, autoregressive_order):
 		self.big_frame_size = big_frame_size
 		self.frame_size = frame_size
@@ -52,6 +52,8 @@ class SampleRnnModel(object):
 		self.weights["sample_mlp2_weights"] = tf.get_variable("sample_mlp2", [self.dim, self.dim], dtype=tf.float32)
 		self.weights["sample_mlp3_weights"] = tf.get_variable("sample_mlp3", [self.dim, self.q_levels], dtype=tf.float32)
 
+		# Add to summary
+		
 		return
 
 
@@ -70,7 +72,7 @@ class SampleRnnModel(object):
 			big_frame_state,
 			big_input_sequences,
 			seq_len):
-		
+
 		if seq_len is None:
 			num_time_frames = 1
 		else:

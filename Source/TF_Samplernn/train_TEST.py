@@ -17,9 +17,9 @@ from samplernn import SampleRnnModel, AudioReader, mu_law_decode, optimizer_fact
 
 from asynchronous_load_mat import load_mat
 
-# DATA_DIRECTORY='/home/leo/WaveGeneration/Data/contrabass_no_cond/ordinario/8000_4104_0.01'
-DATA_DIRECTORY="/Users/leo/Recherche/WaveGeneration/Data/contrabass_no_cond/ordinario_xs/8000_16392_0.01"
-LOGDIR_ROOT='./logdir'
+DATA_DIRECTORY='/fast-1/leo/WaveGeneration/Data/ordinario_xs/8000_16392_0.01'
+# DATA_DIRECTORY="/Users/leo/Recherche/WaveGeneration/Data/contrabass_no_cond/ordinario_xs/8000_16392_0.01"
+LOGDIR_ROOT='/fast-1/leo/WaveGeneration/logdir'
 CHECKPOINT_EVERY=10
 NUM_STEPS=int(1e5)
 LEARNING_RATE=1e-3
@@ -27,15 +27,15 @@ L2_REGULARIZATION_STRENGTH=0
 MOMENTUM=0.9
 MAX_TO_KEEP=5
 
-BIG_FRAME_SIZE=8
-FRAME_SIZE=2        
+BIG_FRAME_SIZE=16
+FRAME_SIZE=4
 Q_LEVELS=256        # Quantification for the amplitude of the audio samples
 RNN_TYPE='GRU'
 DIM=1024            # Number of units in RNNs
 N_RNN=1
-SEQ_LEN=520         # Size for one BPTT pass
+SEQ_LEN=512+BIG_FRAME_SIZE # Size for one BPTT pass
 EMB_SIZE=256
-AUTOREGRESSIVE_ORDER=2
+AUTOREGRESSIVE_ORDER=5
 OPTIMIZER='adam'
 
 N_SECS=3
@@ -106,7 +106,6 @@ def load(saver, sess, logdir):
 def create_model(args):
 	# Create network.
 	net = SampleRnnModel(
-		batch_size=args.batch_size,
 		big_frame_size=args.big_frame_size,
 		frame_size=args.frame_size,
 		q_levels=args.q_levels,
@@ -179,14 +178,14 @@ def generate_and_save_samples(step, length, num_example_generated, net, gen_inpu
 		if t % net.big_frame_size == 0:
 			big_frame_out = None
 			big_input_sequences = samples[:, t-net.big_frame_size:t,:].astype('float32')
-			big_frame_out, final_big_s= \
-			sess.run([gen_output['big_frame'] , gen_output['big_frame_state'] ],
+			big_frame_out, final_big_s = \
+			sess.run([gen_output['big_frame'] , gen_output['big_frame_state']],
 				feed_dict={gen_input['big_frame'] : big_input_sequences,
 					gen_input['big_frame_state'] : final_big_s})
 		#frame 
 		if t % net.frame_size == 0:
 			frame_input_sequences = samples[:, t-net.frame_size:t,:].astype('float32')
-			big_frame_output_idx = (t/net.frame_size)%(net.big_frame_size/net.frame_size)
+			big_frame_output_idx = (t//net.frame_size)%(net.big_frame_size//net.frame_size)
 			frame_out, final_s = sess.run([gen_output['frame'], gen_output['frame_state']],
 				feed_dict={gen_input['frame_from_big'] : big_frame_out[:,[big_frame_output_idx],:],
 					gen_input['frame'] : frame_input_sequences,
@@ -210,7 +209,7 @@ def generate_and_save_samples(step, length, num_example_generated, net, gen_inpu
 	for i in range(0, num_example_generated):
 		inp = samples[i].reshape([-1,1]).tolist()
 		out = sess.run(gen_output['sample_decoded'], feed_dict={gen_input['sample_to_decode']: inp})
-		write_wav(out, 16000, 'test_wav/' + str(step)+'_'+str(i)+'.wav')
+		write_wav(out, 16000, '/fast-1/leo/WaveGeneration/test_wav/' + str(step)+'_'+str(i)+'.wav')
 	return
 					
 def main():
@@ -228,6 +227,8 @@ def main():
 	# Get list of data chunks
 	chunk_list = build_db.find_files(DATA_DIRECTORY + '/chunk', pattern="*.npy")
 	random.shuffle(chunk_list)
+	# Adapt batch_size if we have very few files
+	batch_size = min(args.batch_size, len(chunk_list))
 	##############################
 
 	##############################	
@@ -290,10 +291,11 @@ def main():
 	summaries_N = tf.summary.merge_all()
 
 	# Allocate only a fraction of GPU memory
-	configSession = tf.ConfigProto()
-	configSession.gpu_options.per_process_gpu_memory_fraction = 0.5
+	# configSession = tf.ConfigProto()
+	# configSession.gpu_options.per_process_gpu_memory_fraction = 0.5
 
-	with tf.Session(config=configSession) as sess:
+	# with tf.Session(config=configSession) as sess:
+	with tf.Session() as sess:
 		
 		init = tf.global_variables_initializer()
 		sess.run(init)
@@ -331,18 +333,20 @@ def main():
 			for step in range(saved_global_step + 1, args.num_steps):
 				if (step-1) % 20 == 0 and step>20:
 					generate_and_save_samples(step, length_generation, NUM_EXAMPLE_GENERATED, net, gen_input, gen_output, sess)
+				if step==0:
+					generate_and_save_samples(step, length_generation, NUM_EXAMPLE_GENERATED, net, gen_input, gen_output, sess)
 
 				##############################
 				# Initialize the stateful RNN
-				final_big_s = np.zeros((args.batch_size, args.dim), dtype=np.float32)
-				final_s = np.zeros((args.batch_size, args.dim), dtype=np.float32)
+				final_big_s = np.zeros((batch_size, args.dim), dtype=np.float32)
+				final_s = np.zeros((batch_size, args.dim), dtype=np.float32)
 				##############################
 				
 				start_time = time.time()
 				
 				##############################
 				# Get train batch
-				train_matrix, chunk_counter = load_mat(chunk_list, args.batch_size, chunk_counter)
+				train_matrix, chunk_counter = load_mat(chunk_list, batch_size, chunk_counter)
 				# mean_abs = np.mean(np.absolute(train_matrix))
 				# print(mean_abs)
 				##############################
@@ -373,13 +377,13 @@ def main():
 
 					##############################
 					# Run
-					summary, loss, _, final_big_s, final_s= sess.run(outp_list, feed_dict=inp_dict)
+					summary, loss, _, final_big_s, final_s = sess.run(outp_list, feed_dict=inp_dict)
 					##############################
 
 					##############################
 					# Write summaries
 					writer.add_summary(summary, step)
-					loss_norm = loss/stateful_rnn_length
+					loss_norm = loss / stateful_rnn_length
 					##############################
 				duration = time.time() - start_time
 				print('step {:d} - loss = {:.3f}, ({:.3f} sec/step)'

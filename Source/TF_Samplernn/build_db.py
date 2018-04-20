@@ -81,7 +81,7 @@ def main(audio_dir, save_dir, sample_rate, sample_size=None, silence_threshold=N
 	return
 
 if __name__ == '__main__':
-	audio_dir='/Users/leo/Recherche/WaveGeneration/Data/contrabass_no_cond/ordinario_xs'
+	audio_dir='/fast-1/leo/WaveGeneration/Data/ordinario_xs'
 	sample_rate=8000
 	sample_size=2**14+8
 	silence_threshold=0.01
