@@ -14,12 +14,14 @@ import tensorflow as tf
 import build_db
 from tensorflow.python.client import timeline
 from samplernn import SampleRnnModel, AudioReader, mu_law_decode, optimizer_factory
+from keras import backend as K
 
 from asynchronous_load_mat import load_mat
 
-DATA_DIRECTORY='/fast-1/leo/WaveGeneration/Data/ordinario_xs/8000_16392_0.01'
+# DATA_DIRECTORY='/fast-1/leo/WaveGeneration/Data/ordinario_xs/8000_16392_0.01'
+DATA_DIRECTORY='/tmp/leo/WaveGeneration/Data/ordinario_xs/8000_16392_0.01'
 # DATA_DIRECTORY="/Users/leo/Recherche/WaveGeneration/Data/contrabass_no_cond/ordinario_xs/8000_16392_0.01"
-LOGDIR_ROOT='/fast-1/leo/WaveGeneration/logdir'
+LOGDIR_ROOT='/tmp/leo/WaveGeneration/logdir'
 CHECKPOINT_EVERY=10
 NUM_STEPS=int(1e5)
 LEARNING_RATE=1e-3
@@ -181,7 +183,8 @@ def generate_and_save_samples(step, length, num_example_generated, net, gen_inpu
 			big_frame_out, final_big_s = \
 			sess.run([gen_output['big_frame'] , gen_output['big_frame_state']],
 				feed_dict={gen_input['big_frame'] : big_input_sequences,
-					gen_input['big_frame_state'] : final_big_s})
+					gen_input['big_frame_state'] : final_big_s,
+					K.learning_phase() : 0})
 		#frame 
 		if t % net.frame_size == 0:
 			frame_input_sequences = samples[:, t-net.frame_size:t,:].astype('float32')
@@ -189,14 +192,16 @@ def generate_and_save_samples(step, length, num_example_generated, net, gen_inpu
 			frame_out, final_s = sess.run([gen_output['frame'], gen_output['frame_state']],
 				feed_dict={gen_input['frame_from_big'] : big_frame_out[:,[big_frame_output_idx],:],
 					gen_input['frame'] : frame_input_sequences,
-					gen_input['frame_state'] : final_s})
+					gen_input['frame_state'] : final_s,
+					K.learning_phase() : 0})
 		
 		#sample
 		sample_input_sequences = samples[:, t-net.autoregressive_order:t,:]
 		frame_output_idx = t%net.frame_size
 		sample_out= sess.run(gen_output['sample'],
 			feed_dict={gen_input['sample_from_frame'] : frame_out[:,[frame_output_idx],:],
-				gen_input['sample'] : sample_input_sequences})
+				gen_input['sample'] : sample_input_sequences,
+				K.learning_phase() : 0})
 
 		# Sample from the softmax distribution sample_out
 		sample_next_list = []
@@ -208,7 +213,7 @@ def generate_and_save_samples(step, length, num_example_generated, net, gen_inpu
 	# Decode mu_law
 	for i in range(0, num_example_generated):
 		inp = samples[i].reshape([-1,1]).tolist()
-		out = sess.run(gen_output['sample_decoded'], feed_dict={gen_input['sample_to_decode']: inp})
+		out = sess.run(gen_output['sample_decoded'], feed_dict={gen_input['sample_to_decode']: inp, K.learning_phase() : 0})
 		write_wav(out, 16000, '/fast-1/leo/WaveGeneration/test_wav/' + str(step)+'_'+str(i)+'.wav')
 	return
 					
@@ -222,6 +227,9 @@ def main():
 	identifier = "0"
 	print("Identifier: {}".format(identifier))
 	logdir = os.path.join(args.logdir_root, identifier)
+	logdir_summary = os.path.join(args.logdir_root, 'summary')
+	shutil.rmtree(logdir_summary)
+	os.makedirs(logdir_summary)
 
 	##############################
 	# Get list of data chunks
@@ -259,7 +267,7 @@ def main():
 
 	##############################
 	# Compute losses
-	loss_N, final_big_frame_state_N, final_frame_state_N = net.loss_SampleRnn(
+	loss_N, final_big_frame_state_N, final_frame_state_N, raw_output_N = net.loss_SampleRnn(
 		train_input_batch_rnn_PH,
 		big_frame_state_PH,
 		frame_state_PH,
@@ -284,22 +292,22 @@ def main():
 	print("TTT: Instanciate generation net : {}".format(time.time()-ttt))
 	##############################
 
-	
-	writer = tf.summary.FileWriter(logdir)
-	writer.add_graph(tf.get_default_graph())
-
-	summaries_N = tf.summary.merge_all()
-
 	# Allocate only a fraction of GPU memory
-	# configSession = tf.ConfigProto()
-	# configSession.gpu_options.per_process_gpu_memory_fraction = 0.5
+	configSession = tf.ConfigProto()
+	configSession.gpu_options.per_process_gpu_memory_fraction = 0.5
 
-	# with tf.Session(config=configSession) as sess:
-	with tf.Session() as sess:
-		
+	with tf.Session(config=configSession) as sess:
+		# Summary
+		summary_weight_N = tf.summary.merge_all(key='weights')
+		summary_loss_N = tf.summary.merge_all(key='loss')
+		summary_preds_N = tf.summary.merge_all(key='pred_soft_max')
+		writer = tf.summary.FileWriter(logdir_summary, sess.graph)
+		# Keras
+		K.set_session(sess)
+		# Init weights
 		init = tf.global_variables_initializer()
 		sess.run(init)
-
+		# Saver
 		saver = tf.train.Saver(var_list=tf.trainable_variables(), max_to_keep=args.max_checkpoints)
 
 		##############################
@@ -325,10 +333,17 @@ def main():
 			saved_global_step = -1
 		##############################
 
+		##############################
+		# Infer some dimensions parameters
 		step = None
 		chunk_counter = 0
-		last_saved_step = saved_global_step
 		length_generation = int(N_SECS*params_data["sample_rate"])  # For generation
+		audio_length = params_data["sample_size"] - args.big_frame_size
+		bptt_length = args.seq_len - args.big_frame_size
+		stateful_rnn_length = audio_length//bptt_length 
+		outp_list=[summary_weight_N, summary_loss_N, summary_preds_N,\
+			loss_N, apply_gradient_op_N, final_big_frame_state_N, final_frame_state_N, raw_output_N]
+		##############################
 		try:
 			for step in range(saved_global_step + 1, args.num_steps):
 				if (step-1) % 20 == 0 and step>20:
@@ -337,9 +352,12 @@ def main():
 					generate_and_save_samples(step, length_generation, NUM_EXAMPLE_GENERATED, net, gen_input, gen_output, sess)
 
 				##############################
-				# Initialize the stateful RNN
+				# Initialize states, indices and losses
 				final_big_s = np.zeros((batch_size, args.dim), dtype=np.float32)
 				final_s = np.zeros((batch_size, args.dim), dtype=np.float32)
+				loss_sum = 0
+				idx_begin = 0
+				last_saved_step = saved_global_step
 				##############################
 				
 				start_time = time.time()
@@ -347,22 +365,6 @@ def main():
 				##############################
 				# Get train batch
 				train_matrix, chunk_counter = load_mat(chunk_list, batch_size, chunk_counter)
-				# mean_abs = np.mean(np.absolute(train_matrix))
-				# print(mean_abs)
-				##############################
-
-				##############################
-				# Infer some dimensions parameters
-				loss_sum = 0
-				idx_begin = 0
-				audio_length = params_data["sample_size"] - args.big_frame_size
-				bptt_length = args.seq_len - args.big_frame_size
-				stateful_rnn_length = audio_length//bptt_length 
-				outp_list=[summaries_N,\
-					loss_N, \
-				 	apply_gradient_op_N, \
-				 	final_big_frame_state_N, \
-				 	final_frame_state_N]
 				##############################
 
 				for i in range(0, stateful_rnn_length):
@@ -372,19 +374,24 @@ def main():
 					inp_dict[train_input_batch_rnn_PH] = train_matrix[:, idx_begin: idx_begin+args.seq_len,:]
 					inp_dict[big_frame_state_PH] = final_big_s
 					inp_dict[frame_state_PH] = final_s
+					inp_dict[K.learning_phase()] = 1
 					idx_begin += args.seq_len-args.big_frame_size
 					##############################
 
 					##############################
 					# Run
-					summary, loss, _, final_big_s, final_s = sess.run(outp_list, feed_dict=inp_dict)
+					summary_weights, summary_loss, summary_preds, loss, _, final_big_s, final_s, raw_output = sess.run(outp_list, feed_dict=inp_dict)
 					##############################
 
 					##############################
 					# Write summaries
-					writer.add_summary(summary, step)
+					writer.add_summary(summary_loss, step)
+					writer.add_summary(summary_preds, step)
 					loss_norm = loss / stateful_rnn_length
 					##############################
+
+				writer.add_summary(summary_weights, step)
+				import pdb; pdb.set_trace()
 				duration = time.time() - start_time
 				print('step {:d} - loss = {:.3f}, ({:.3f} sec/step)'
 							.format(step, loss_norm, duration))

@@ -7,6 +7,8 @@ import keras
 from keras.layers.recurrent import GRU
 from keras.layers import Dense, Dropout
 
+from samplernn.weight_summary import keras_layer_summary, variable_summary
+
 class SampleRnnModel(object):
 	def __init__(self, big_frame_size, frame_size,
 		q_levels, rnn_type, dim, n_rnn, emb_size, autoregressive_order):
@@ -18,6 +20,7 @@ class SampleRnnModel(object):
 		self.n_rnn = n_rnn
 		self.emb_size=emb_size
 		self.autoregressive_order=autoregressive_order
+		self.summarize=True
 
 		self._init_weigths()
 
@@ -29,7 +32,7 @@ class SampleRnnModel(object):
 		# Big Frame level
 		self.big_upsampling_ratio = self.big_frame_size//self.frame_size 
 		self.big_project_dim = self.dim * self.big_upsampling_ratio
-		self.weights["big_frame_rnn"] = GRU(self.dim, return_sequences=True, return_state=True, activation='relu', dropout=0)
+		self.weights["big_frame_rnn"] = GRU(self.dim, input_shape=(204, 205), return_sequences=True, return_state=True, activation='relu', dropout=0)
 		self.weights["big_frame_proj_weights"] = tf.get_variable("big_frame_proj_weights", [self.dim, self.big_project_dim], dtype=tf.float32)
 
 		# Frame level
@@ -52,12 +55,16 @@ class SampleRnnModel(object):
 		self.weights["sample_mlp2_weights"] = tf.get_variable("sample_mlp2", [self.dim, self.dim], dtype=tf.float32)
 		self.weights["sample_mlp3_weights"] = tf.get_variable("sample_mlp3", [self.dim, self.q_levels], dtype=tf.float32)
 
-		# Add to summary
-		
+		# Summarize weights (keras layers are initialized after input are fed)
+		if self.summarize:
+			for weight_name, weight_value in self.weights.items():
+				if type(weight_value).__name__ == 'Variable':
+					variable_summary(weight_value, plot_bool=False, collections=["weights"])
 		return
 
 
 	def _preprocess_audio_inputs(self, input_frames):
+		# Rescale input from [0, q_level] to [-2, 2]
 		input_frames = (input_frames / (self.q_levels/2.0)) - 1.0
 		input_frames *= 2.0
 		return input_frames
@@ -87,7 +94,9 @@ class SampleRnnModel(object):
 			
 			with tf.variable_scope("BIG_FRAME_RNN"):
 				# Rnn
-				output, state = self.weights["big_frame_rnn"](big_input_frames, initial_state=big_frame_state)
+				rnn = self.weights["big_frame_rnn"]
+				output, state = rnn(big_input_frames, initial_state=big_frame_state)
+				keras_layer_summary(rnn, plot_bool=False, collections=["weights"])
 
 			with tf.variable_scope("Projection_to_frame_level"):
 				output = tf.reshape(output, [-1, self.dim])
@@ -120,7 +129,9 @@ class SampleRnnModel(object):
 				cell_input = tf.reshape(cell_input, [-1, num_time_frames, self.dim])
 				cell_input += big_frame_outputs
 				# Rnn
-				output, state = self.weights["frame_rnn"](cell_input, initial_state=frame_state)
+				rnn = self.weights["frame_rnn"]
+				output, state = rnn(cell_input, initial_state=frame_state)
+				keras_layer_summary(rnn, plot_bool=False, collections=["weights"])
 
 			with tf.variable_scope("Projection_to_sample_level"):
 				output = tf.reshape(output, [-1, self.dim])
@@ -206,6 +217,14 @@ class SampleRnnModel(object):
 			# Train
 			raw_output, final_big_frame_state, final_frame_state = self._create_network_SampleRnn(train_big_frame_state, train_frame_state, seq_len)
 
+			if self.summarize:
+				# Summarize prediction
+				import pdb; pdb.set_trace()
+				preds_summary = tf.reshape(raw_output, [-1, seq_len-self.big_frame_size, self.q_levels, 1])
+				tf.summary.image("pred_soft_max", preds_summary, 10, collections=["pred_soft_max"])
+				inp_summary = tf.reshape(raw_output, [-1, seq_len-self.big_frame_size, self.q_levels, 1])
+				tf.summary.image("input_batch", inp_summary, 10, collections=["pred_soft_max"])
+
 			with tf.name_scope('loss'):
 				# Target
 				target = tf.reshape(self.encoded_input_rnn[:, self.big_frame_size:], [-1])
@@ -214,9 +233,9 @@ class SampleRnnModel(object):
 				# Loss
 				loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=prediction, labels=target)
 				reduced_loss = tf.reduce_mean(loss)
-				tf.summary.scalar('loss', reduced_loss)
+				tf.summary.scalar('loss', reduced_loss, collections=["loss"])
 				if l2_regularization_strength is None:
-					return reduced_loss , final_big_frame_state, final_frame_state
+					return reduced_loss , final_big_frame_state, final_frame_state, raw_output
 				else:
 					# L2 regularization for all trainable parameters
 					l2_loss = tf.add_n([tf.nn.l2_loss(v)
@@ -226,9 +245,9 @@ class SampleRnnModel(object):
 					# Add the regularization term to the loss
 					total_loss = (reduced_loss +
 								l2_regularization_strength * l2_loss)
-
-					tf.summary.scalar('l2_loss', l2_loss)
-					tf.summary.scalar('total_loss', total_loss)
+				
+					tf.summary.scalar('l2_loss', l2_loss, collections=["loss"])
+					tf.summary.scalar('total_loss', total_loss, collections=["loss"])
 
 
 					return total_loss, final_big_frame_state, final_frame_state
