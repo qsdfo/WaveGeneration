@@ -8,6 +8,8 @@ import pickle as pkl
 import numpy as np
 import progressbar
 
+import data_statistics
+
 
 def randomize_files(files):
   files_idx = [i for i in range(len(files))]
@@ -59,6 +61,9 @@ def main(audio_dir, save_dir, sample_rate, sample_size=None, silence_threshold=N
 
 	for audio_copy,filename in progressbar.progressbar(iterator):
 		audio = copy.deepcopy(audio_copy)
+
+		# Compute statistics on the training data
+		
 	
 		if silence_threshold is not None:
 			# Remove silence
@@ -81,9 +86,10 @@ def main(audio_dir, save_dir, sample_rate, sample_size=None, silence_threshold=N
 	return
 
 if __name__ == '__main__':
-	audio_dir='/fast-1/leo/WaveGeneration/Data/ordinario_xs'
+	audio_dir='/fast-1/leo/WaveGeneration/Data/contrabass_no_cond/ordinario'
 	sample_rate=8000
-	sample_size=2**14+8
+	# sample_size=2**14+8
+	sample_size=2**10+8
 	silence_threshold=0.01
 
 	# Save these parameters
@@ -98,3 +104,6 @@ if __name__ == '__main__':
 	pkl.dump(params, open(save_dir + '/params.pkl', 'wb'))
 	
 	main(audio_dir, save_dir, sample_rate, sample_size, silence_threshold)
+
+	# Compute and bar plot activation ratio of the the different quantized audio samples
+	data_statistics.bar_activations(save_dir, save_dir, sample_size)
