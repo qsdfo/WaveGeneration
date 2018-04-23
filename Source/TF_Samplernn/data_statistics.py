@@ -3,6 +3,7 @@ import numpy as np
 import build_db
 from samplernn.ops import mu_law_encode, linear_encode
 import tensorflow as tf
+import progressbar
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -19,17 +20,17 @@ def bar_activations(data_directory, plot_path, seq_len):
 	mu_law_encoded=tf.cast(mu_law_encode(chunk_PH, 256), tf.float32)
 
 	with tf.Session() as sess:
-		for chunk_path in chunk_list:
+		for chunk_path in progressbar.progressbar(chunk_list):
 			# Load chunk
 			chunk = np.load(chunk_path)
 			# Encode
 			mu_encoded_ = sess.run(mu_law_encoded, feed_dict={chunk_PH: chunk})
 			lin_encoded_ = sess.run(lin_encoded, feed_dict={chunk_PH: chunk})
-		# Stats	
-		for val in mu_encoded_:
-			activation_counter_mu[int(val)]+= 1
-		for val in lin_encoded_:
-			activation_counter_lin[int(val)]+= 1
+			# Stats	
+			for val in mu_encoded_:
+				activation_counter_mu[int(val)]+= 1
+			for val in lin_encoded_:
+				activation_counter_lin[int(val)]+= 1
 			
 	fig, ax = plt.subplots(tight_layout=True)
 	ax.bar(range(256), activation_counter_lin)

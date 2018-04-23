@@ -47,7 +47,7 @@ def trim_silence(audio, threshold):
   return audio[indices[0]:indices[-1]] if indices.size else audio[0:0]
 
 
-def main(audio_dir, save_dir, sample_rate, sample_size=None, silence_threshold=None):
+def main(audio_dir, save_dir, sample_rate, sample_size=None, sliding_ratio=None, silence_threshold=None):
 	# Go through the dataset multiple times
 	audio_list = []
 	files = find_files(audio_dir)
@@ -60,36 +60,48 @@ def main(audio_dir, save_dir, sample_rate, sample_size=None, silence_threshold=N
 	os.makedirs(chunk_dir)
 
 	for audio_copy,filename in progressbar.progressbar(iterator):
+		# Init
+		start_time = 0
 		audio = copy.deepcopy(audio_copy)
-
-		# Compute statistics on the training data
-		
-	
+			
 		if silence_threshold is not None:
 			# Remove silence
 			audio = trim_silence(audio[:, 0], silence_threshold)
 			audio = audio.reshape(-1, 1)
 			if audio.size == 0:
 				print(("Warning: " + filename + " was ignored as it contains only silence. Consider decreasing trim_silence threshold, or adjust volume of the audio.").format())
-			pad_elements = sample_size - 1 - (audio.shape[0] + sample_size - 1) % sample_size
-			audio = np.concatenate([audio,
-				np.full((pad_elements, 1), 0.0, dtype='float32')],
-				axis=0)
 
-		while len(audio) >= sample_size:
-			piece = audio[:sample_size, :]
+			#>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+			# Padding ? Not sure it's a good idea...
+			#
+			# pad_elements = sample_size - 1 - (audio.shape[0] + sample_size - 1) % sample_size
+			# audio = np.concatenate([audio,
+			# 	np.full((pad_elements, 1), 0.0, dtype='float32')],
+			# 	axis=0)
+			#>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+		while len(audio) >= (start_time+sample_size):
+			piece = audio[start_time:start_time+sample_size]
 			# Save piece
 			np.save(os.path.join(chunk_dir, str(chunk_index)),piece)
-			audio = audio[sample_size:, :]
 			chunk_index += 1
-	
+			start_time = int(start_time + sliding_ratio*sample_size)
+
+		# Instead of zero padding, take the last batch the remainder of the last batch if not too long
+		remaining_samples = len(audio) - start_time
+		if remaining_samples > sample_size / 3:
+			piece = audio[-sample_size:]
+			np.save(os.path.join(chunk_dir, str(chunk_index)),piece)
+			
 	return
 
 if __name__ == '__main__':
-	audio_dir='/fast-1/leo/WaveGeneration/Data/contrabass_no_cond/ordinario'
+	# audio_dir='/fast-1/leo/WaveGeneration/Data/contrabass_no_cond/ordinario'
+	audio_dir='/Users/leo/Recherche/WaveGeneration/Data/contrabass_no_cond/ordinario'
 	sample_rate=8000
 	# sample_size=2**14+8
 	sample_size=2**10+8
+	sliding_ratio=0.75
 	silence_threshold=0.01
 
 	# Save these parameters
@@ -103,7 +115,7 @@ if __name__ == '__main__':
 	params["silence_threshold"]=silence_threshold
 	pkl.dump(params, open(save_dir + '/params.pkl', 'wb'))
 	
-	main(audio_dir, save_dir, sample_rate, sample_size, silence_threshold)
+	main(audio_dir, save_dir, sample_rate, sample_size, sliding_ratio, silence_threshold)
 
 	# Compute and bar plot activation ratio of the the different quantized audio samples
 	data_statistics.bar_activations(save_dir, save_dir, sample_size)
