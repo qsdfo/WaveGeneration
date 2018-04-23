@@ -35,8 +35,8 @@ def main(data_path):
         shutil.rmtree(save_path)
     os.makedirs(save_path)
     
-    print data_path
-    print save_path
+    print(data_path)
+    print(save_path)
 
     paths = sorted(glob.glob(data_path+"/*.wav"))
     __fixed_shuffle(paths)

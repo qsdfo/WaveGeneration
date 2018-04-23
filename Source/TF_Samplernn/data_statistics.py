@@ -1,7 +1,7 @@
 import random
 import numpy as np
 import build_db
-from samplernn.ops import mu_law_encode, linear_encode
+from samplernn.ops import mu_law_encode, linear_encode, linear_decode
 import tensorflow as tf
 import progressbar
 
@@ -18,6 +18,7 @@ def bar_activations(data_directory, plot_path, seq_len):
 	chunk_PH = tf.placeholder(tf.float32, shape=(seq_len, 1))
 	lin_encoded=tf.cast(linear_encode(chunk_PH, 256), tf.float32)
 	mu_law_encoded=tf.cast(mu_law_encode(chunk_PH, 256), tf.float32)
+	# lin_decoded = linear_decode(lin_encoded, 256)
 
 	with tf.Session() as sess:
 		for chunk_path in progressbar.progressbar(chunk_list):
@@ -26,6 +27,10 @@ def bar_activations(data_directory, plot_path, seq_len):
 			# Encode
 			mu_encoded_ = sess.run(mu_law_encoded, feed_dict={chunk_PH: chunk})
 			lin_encoded_ = sess.run(lin_encoded, feed_dict={chunk_PH: chunk})
+
+			# Check decoding
+			# lin_decoded_ = sess.run(lin_decoded, feed_dict={chunk_PH: chunk})
+		
 			# Stats	
 			for val in mu_encoded_:
 				activation_counter_mu[int(val)]+= 1

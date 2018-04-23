@@ -50,14 +50,17 @@ def linear_encode(audio, quantization_channels):
   """
   with tf.name_scope('encode'):
     eps = np.float32(1e-20)
-    audio += 1
-    audio *= (quantization_channels - eps) / 2
-    audio += eps/2
+    # Rescale in (0,1)
+    audio = (audio + 1) / 2
+    audio = audio * (quantization_channels - eps)
+    audio = audio + (eps/2)
     audio = tf.cast(audio, tf.int32)
     return audio
     
 def linear_decode(output, quantization_channels):
   '''Recovers waveform from quantized values.'''
   with tf.name_scope('decode'):
-    
-    return
+    output = tf.cast(output, tf.float32)
+    output = ((output + 0.5) / quantization_channels)
+    output = (output * 2) - 1
+    return output
