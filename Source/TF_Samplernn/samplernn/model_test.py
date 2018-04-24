@@ -11,16 +11,15 @@ from samplernn.weight_summary import keras_layer_summary, variable_summary
 
 class SampleRnnModel(object):
 	def __init__(self, big_frame_size, frame_size,
-		q_levels, rnn_type, dim, n_rnn, emb_size, autoregressive_order):
+		q_levels, dim, n_rnn, emb_size, autoregressive_order, summary):
 		self.big_frame_size = big_frame_size
 		self.frame_size = frame_size
 		self.q_levels = q_levels
-		self.rnn_type = rnn_type
 		self.dim = dim
 		self.n_rnn = n_rnn
 		self.emb_size=emb_size
 		self.autoregressive_order=autoregressive_order
-		self.summarize=True
+		self.summarize=summary
 
 		self._init_weigths()
 
@@ -219,7 +218,6 @@ class SampleRnnModel(object):
 
 			if self.summarize:
 				# Summarize prediction
-				import pdb; pdb.set_trace()
 				preds_summary = tf.reshape(raw_output, [-1, seq_len-self.big_frame_size, self.q_levels, 1])
 				tf.summary.image("pred_soft_max", preds_summary, 10, collections=["pred_soft_max"])
 				inp_summary = tf.reshape(raw_output, [-1, seq_len-self.big_frame_size, self.q_levels, 1])

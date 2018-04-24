@@ -17,12 +17,14 @@ from samplernn import SampleRnnModel, AudioReader, mu_law_decode, optimizer_fact
 from keras import backend as K
 
 from asynchronous_load_mat import load_mat
+import build_db
+import early_stopping
 
-# DATA_DIRECTORY='/fast-1/leo/WaveGeneration/Data/ordinario_xs/8000_16392_0.01'
-DATA_DIRECTORY='/tmp/leo/WaveGeneration/Data/ordinario_xs/8000_16392_0.01'
+DATA_DIRECTORY='/fast-1/leo/WaveGeneration/Data/contrabass_no_cond/ordinario'
+# DATA_DIRECTORY='/tmp/leo/WaveGeneration/Data/ordinario_xs/8000_16392_0.01'
 # DATA_DIRECTORY="/Users/leo/Recherche/WaveGeneration/Data/contrabass_no_cond/ordinario_xs/8000_16392_0.01"
-LOGDIR_ROOT='/tmp/leo/WaveGeneration/logdir'
-CHECKPOINT_EVERY=10
+LOGDIR_ROOT='/fast-1/leo/WaveGeneration/logdir'
+CHECKPOINT_EVERY=20
 NUM_STEPS=int(1e5)
 LEARNING_RATE=1e-3
 L2_REGULARIZATION_STRENGTH=0
@@ -32,7 +34,6 @@ MAX_TO_KEEP=5
 BIG_FRAME_SIZE=16
 FRAME_SIZE=4
 Q_LEVELS=256        # Quantification for the amplitude of the audio samples
-RNN_TYPE='GRU'
 DIM=1024            # Number of units in RNNs
 N_RNN=1
 SEQ_LEN=512+BIG_FRAME_SIZE # Size for one BPTT pass
@@ -41,10 +42,16 @@ AUTOREGRESSIVE_ORDER=5
 OPTIMIZER='adam'
 
 N_SECS=3
-NUM_EXAMPLE_GENERATED=10
+NUM_EXEMPLE_GENERATED=10
 
 BATCH_SIZE=64
 NUM_GPU=1
+
+SAMPLE_RATE=8000
+SAMPLE_SIZE=2**14+8
+SLIDING_RATIO=0.75
+SILENCE_THRESHOLD=0.01
+
 
 def get_arguments():
 	parser = argparse.ArgumentParser(description='SampleRnn example network')
@@ -59,6 +66,11 @@ def get_arguments():
 	parser.add_argument('--optimizer',        type=str,   default=OPTIMIZER, choices=list(optimizer_factory.keys()))
 	parser.add_argument('--momentum',         type=float, default=MOMENTUM)
 
+	parser.add_argument('--sample_rate',      type=int,   default=SAMPLE_RATE)
+	parser.add_argument('--sample_size',      type=int,   default=SAMPLE_SIZE)
+	parser.add_argument('--sliding_ratio',    type=float, default=SLIDING_RATIO)
+	parser.add_argument('--silence_threshold',type=int,   default=SILENCE_THRESHOLD)
+
 	parser.add_argument('--seq_len',          type=int, default=SEQ_LEN)
 	parser.add_argument('--big_frame_size',   type=int, default=BIG_FRAME_SIZE)
 	parser.add_argument('--frame_size',       type=int, default=FRAME_SIZE)
@@ -67,11 +79,17 @@ def get_arguments():
 	parser.add_argument('--n_rnn',            type=int, choices=list(range(1,6)), default=N_RNN)
 	parser.add_argument('--emb_size',         type=int, default=EMB_SIZE)
 	parser.add_argument('--autoregressive_order', type=int, default=AUTOREGRESSIVE_ORDER)
-	parser.add_argument('--rnn_type', choices=['LSTM', 'GRU'], default=RNN_TYPE)
 	parser.add_argument('--max_checkpoints',  type=int, default=MAX_TO_KEEP)
+	parser.add_argument('--num_example_generated',  type=int, default=NUM_EXEMPLE_GENERATED)
 	parser.add_argument('--load_existing_model',  type=int, default=False)
+	parser.add_argument('--summary',  type=bool, default=False)
 	return parser.parse_args()
 
+def init_directory(path):
+	if os.path.isdir(path):
+		shutil.rmtree(path)
+	os.makedirs(path)
+	return
 
 def save(saver, sess, logdir, step):
 		model_name = 'model.ckpt'
@@ -80,7 +98,7 @@ def save(saver, sess, logdir, step):
 		sys.stdout.flush()
 
 		if not os.path.exists(logdir):
-				os.makedirs(logdir)
+			os.makedirs(logdir)
 
 		saver.save(sess, checkpoint_path, global_step=step)
 		print(' Done.')
@@ -111,12 +129,12 @@ def create_model(args):
 		big_frame_size=args.big_frame_size,
 		frame_size=args.frame_size,
 		q_levels=args.q_levels,
-		rnn_type=args.rnn_type,
 		dim=args.dim,
 		n_rnn=args.n_rnn,
 		emb_size=args.emb_size,
-		autoregressive_order=args.autoregressive_order)
-	return net 
+		autoregressive_order=args.autoregressive_order,
+		summary=args.summary)
+	return net
 
 # GENERATE 
 def create_gen_wav_para(net):
@@ -161,7 +179,7 @@ def write_wav(waveform, sample_rate, filename):
 	librosa.output.write_wav(filename, y, sample_rate)
 	print('Updated wav file at {}'.format(filename))
 
-def generate_and_save_samples(step, length, num_example_generated, net, gen_input, gen_output, sess):
+def generate_and_save_samples(step, length, sample_rate, num_example_generated, net, gen_input, gen_output, sess, write_dir):
 	# Initialize sequence to generate
 	samples = np.zeros((num_example_generated, length, 1), dtype='int32')
 	samples[:, :net.big_frame_size,:] = np.int32(net.q_levels//2)
@@ -214,29 +232,51 @@ def generate_and_save_samples(step, length, num_example_generated, net, gen_inpu
 	for i in range(0, num_example_generated):
 		inp = samples[i].reshape([-1,1]).tolist()
 		out = sess.run(gen_output['sample_decoded'], feed_dict={gen_input['sample_to_decode']: inp, K.learning_phase() : 0})
-		write_wav(out, 16000, '/fast-1/leo/WaveGeneration/test_wav/' + str(step)+'_'+str(i)+'.wav')
+		write_wav(out, sample_rate, write_dir + '/' + str(step)+'_'+str(i)+'.wav')
 	return
 					
 def main():
 	args = get_arguments()
 	if args.l2_regularization_strength == 0:
 			args.l2_regularization_strength = None
-	params_data=pkl.load(open(args.data_dir + '/params.pkl', 'rb'))
 
-	# identifier = str(random.randint(1,100000))
-	identifier = "0"
-	print("Identifier: {}".format(identifier))
-	logdir = os.path.join(args.logdir_root, identifier)
-	logdir_summary = os.path.join(args.logdir_root, 'summary')
-	shutil.rmtree(logdir_summary)
-	os.makedirs(logdir_summary)
 
 	##############################
+	# Get data directory
+	config_str = "_".join([str(args.sample_rate), str(args.sample_size), str(args.sliding_ratio), str(args.silence_threshold)])
+	files_dir = args.data_dir
+	npy_dir = files_dir + '/' + config_str
+	# Check if exists
+	if not os.path.isdir(npy_dir):
+		# Build if not
+		build_db.main(files_dir, npy_dir, args.sample_rate, args.sample_size, args.sliding_ratio, args.silence_threshold)
+		# data_statistics.bar_activations(save_dir, save_dir, sample_size)
+	##############################
+
+	##############################
+	# Logging
+	# Summary
+	if args.summary:
+		logdir_summary = os.path.join(args.logdir_root, 'summary')
+		init_directory(logdir_summary)
+	# Save	
+	logdir_save = os.path.join(args.logdir_root, 'save')
+	# Wave
+	logdir_wav = os.path.join(args.logdir_root, 'wav')
+	init_directory(logdir_wav)
+	##############################
+
+	##############################
+	# Get Data and Split them
 	# Get list of data chunks
-	chunk_list = build_db.find_files(DATA_DIRECTORY + '/chunk', pattern="*.npy")
+	chunk_list = build_db.find_files(npy_dir, pattern="*.npy")
 	random.shuffle(chunk_list)
 	# Adapt batch_size if we have very few files
-	batch_size = min(args.batch_size, len(chunk_list))
+	num_chunk = len(chunk_list) 
+	batch_size = min(args.batch_size, num_chunk)
+	# Split 90 / 10
+	training_chunks = chunk_list[:int(0.9*num_chunk)]
+	valid_chunks = chunk_list[int(0.9*num_chunk):]
 	##############################
 
 	##############################	
@@ -294,14 +334,16 @@ def main():
 
 	# Allocate only a fraction of GPU memory
 	configSession = tf.ConfigProto()
-	configSession.gpu_options.per_process_gpu_memory_fraction = 0.5
+	configSession.gpu_options.per_process_gpu_memory_fraction = 0.6
 
 	with tf.Session(config=configSession) as sess:
 		# Summary
-		summary_weight_N = tf.summary.merge_all(key='weights')
-		summary_loss_N = tf.summary.merge_all(key='loss')
-		summary_preds_N = tf.summary.merge_all(key='pred_soft_max')
-		writer = tf.summary.FileWriter(logdir_summary, sess.graph)
+		if args.summary:
+			summary_weight_N = tf.summary.merge_all(key='weights')
+			summary_preds_N = tf.summary.merge_all(key='pred_soft_max')
+			summary_loss_N = tf.summary.merge_all(key='loss')
+			writer = tf.summary.FileWriter(logdir_summary, sess.graph)
+
 		# Keras
 		K.set_session(sess)
 		# Init weights
@@ -315,7 +357,7 @@ def main():
 		ttt = time.time()
 		if args.load_existing_model:
 			try:
-				saved_global_step = load(saver, sess, logdir)
+				saved_global_step = load(saver, sess, logdir_save)
 				if saved_global_step is None:
 					# The first training step will be saved_global_step + 1,
 					# therefore we put -1 here for new or overwritten trainings.
@@ -328,28 +370,33 @@ def main():
 			print("TTT: Load previously trained model : {}".format(time.time()-ttt))
 		else:
 			# Remove existing models
-			shutil.rmtree(logdir)
-			os.makedirs(logdir)
+			init_directory(logdir_save)
 			saved_global_step = -1
 		##############################
 
 		##############################
 		# Infer some dimensions parameters
 		step = None
-		chunk_counter = 0
-		length_generation = int(N_SECS*params_data["sample_rate"])  # For generation
-		audio_length = params_data["sample_size"] - args.big_frame_size
+		chunk_counter_train = 0
+		length_generation = int(N_SECS*args.sample_rate)  # For generation
+		audio_length = args.sample_size - args.big_frame_size
 		bptt_length = args.seq_len - args.big_frame_size
 		stateful_rnn_length = audio_length//bptt_length 
-		outp_list=[summary_weight_N, summary_loss_N, summary_preds_N,\
-			loss_N, apply_gradient_op_N, final_big_frame_state_N, final_frame_state_N, raw_output_N]
+		val_tab = np.zeros((args.num_steps))
+		overfitting = False
+		if args.summary:
+			train_list=[summary_weight_N, summary_loss_N, summary_preds_N,\
+				loss_N, apply_gradient_op_N, final_big_frame_state_N, final_frame_state_N, raw_output_N]
+		else:
+			train_list=[loss_N, apply_gradient_op_N, final_big_frame_state_N, final_frame_state_N, raw_output_N]
+		valid_list=[loss_N, final_big_frame_state_N, final_frame_state_N]
 		##############################
 		try:
 			for step in range(saved_global_step + 1, args.num_steps):
 				if (step-1) % 20 == 0 and step>20:
-					generate_and_save_samples(step, length_generation, NUM_EXAMPLE_GENERATED, net, gen_input, gen_output, sess)
+					generate_and_save_samples(step, length_generation, args.sample_rate, args.num_example_generated, net, gen_input, gen_output, sess, logdir_wav)
 				if step==0:
-					generate_and_save_samples(step, length_generation, NUM_EXAMPLE_GENERATED, net, gen_input, gen_output, sess)
+					generate_and_save_samples(step, length_generation, args.sample_rate, args.num_example_generated, net, gen_input, gen_output, sess, logdir_wav)
 
 				##############################
 				# Initialize states, indices and losses
@@ -364,7 +411,7 @@ def main():
 				
 				##############################
 				# Get train batch
-				train_matrix, chunk_counter = load_mat(chunk_list, batch_size, chunk_counter)
+				train_matrix, chunk_counter_train = load_mat(training_chunks, batch_size, chunk_counter_train)
 				##############################
 
 				for i in range(0, stateful_rnn_length):
@@ -380,25 +427,65 @@ def main():
 
 					##############################
 					# Run
-					summary_weights, summary_loss, summary_preds, loss, _, final_big_s, final_s, raw_output = sess.run(outp_list, feed_dict=inp_dict)
+					if args.summary:
+						summary_weights, summary_loss, summary_preds, loss, _, final_big_s, final_s, raw_output = sess.run(train_list, feed_dict=inp_dict)
+					else:
+						loss, _, final_big_s, final_s, raw_output = sess.run(train_list, feed_dict=inp_dict)
+					loss_sum += loss
 					##############################
 
 					##############################
 					# Write summaries
-					writer.add_summary(summary_loss, step)
-					writer.add_summary(summary_preds, step)
-					loss_norm = loss / stateful_rnn_length
+					if args.summary:
+						writer.add_summary(summary_loss, step)
+						writer.add_summary(summary_preds, step)
+					loss_norm = loss_sum / stateful_rnn_length
 					##############################
 
-				writer.add_summary(summary_weights, step)
-				import pdb; pdb.set_trace()
+
+				##############################
+				# Get valid batch
+				# For validation we can make one huge batch
+				valid_matrix, _ = load_mat(valid_chunks, len(valid_chunks), 0)
+				final_big_s_val = np.zeros((len(valid_chunks), args.dim), dtype=np.float32)
+				final_s_val = np.zeros((len(valid_chunks), args.dim), dtype=np.float32)
+				idx_begin = 0
+				##############################
+
+				loss_val_sum = 0
+				for i in range(0, stateful_rnn_length):
+					valid_dict={}
+					valid_dict[train_input_batch_rnn_PH] = valid_matrix[:, idx_begin: idx_begin+args.seq_len,:]
+					valid_dict[big_frame_state_PH] = final_big_s_val
+					valid_dict[frame_state_PH] = final_s_val
+					valid_dict[K.learning_phase()] = 0
+					idx_begin += args.seq_len-args.big_frame_size
+
+					loss_val, final_big_s_val, final_s_val = sess.run(valid_list, feed_dict=valid_dict)
+					loss_val_sum += loss_val
+
+				loss_val_mean = loss_val_sum / stateful_rnn_length
+
+				val_tab[step] = loss_val_mean
+				if step > 10:
+					# Perform at least 10 epoch
+					overfitting = early_stopping.up_criterion(val_tab, step, 3, 2)
+
+				if args.summary:
+					writer.add_summary(summary_weights, step)
 				duration = time.time() - start_time
-				print('step {:d} - loss = {:.3f}, ({:.3f} sec/step)'
-							.format(step, loss_norm, duration))
+				print('step {:d} - loss = {:.5f} - val : {:.5f}'
+							.format(step, loss_norm, loss_val_mean))
 
 				if step % args.checkpoint_every == 0:
-					save(saver, sess, logdir, step)
+					save(saver, sess, logdir_save, step)
 					last_saved_step = step
+
+				if overfitting:
+					save(saver, sess, logdir_save, step)
+					last_saved_step = step
+					generate_and_save_samples(step, length_generation, args.sample_rate, args.num_example_generated, net, gen_input, gen_output, sess, logdir_wav)
+					break
 
 		except KeyboardInterrupt:
 			# Introduce a line break after ^C is displayed so save message
@@ -406,7 +493,7 @@ def main():
 			print()
 		finally:
 			if step > last_saved_step:
-					save(saver, sess, logdir, step)
+				save(saver, sess, logdir_save, step)
 
 if __name__ == '__main__':
 		main()
