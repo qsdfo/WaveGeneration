@@ -64,3 +64,9 @@ def linear_decode(output, quantization_channels):
     output = ((output + 0.5) / quantization_channels)
     output = (output * 2) - 1
     return output
+
+def init_directory(path):
+  if os.path.isdir(path):
+    shutil.rmtree(path)
+  os.makedirs(path)
+  return
