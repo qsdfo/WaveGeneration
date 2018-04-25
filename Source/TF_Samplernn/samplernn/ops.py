@@ -1,6 +1,8 @@
 from __future__ import division
 import tensorflow as tf
 import numpy as np
+import os
+import shutil
 
 def create_adam_optimizer(learning_rate, momentum):
   return tf.train.AdamOptimizer(learning_rate=learning_rate,

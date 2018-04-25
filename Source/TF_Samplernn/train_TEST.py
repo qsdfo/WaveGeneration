@@ -19,24 +19,25 @@ from keras import backend as K
 from asynchronous_load_mat import load_mat
 import build_db
 import early_stopping
+import samplernn.ops as ops
 
-DATA_DIRECTORY='/fast-1/leo/WaveGeneration/Data/contrabass_no_cond/ordinario'
-# DATA_DIRECTORY='/tmp/leo/WaveGeneration/Data/ordinario_xs/8000_16392_0.01'
+# DATA_DIRECTORY='/fast-1/leo/WaveGeneration/Data/contrabass_no_cond/ordinario'
+DATA_DIRECTORY='/tmp/leo/WaveGeneration/Data/contrabass_no_cond/ordinario'
 # DATA_DIRECTORY="/Users/leo/Recherche/WaveGeneration/Data/contrabass_no_cond/ordinario_xs/8000_16392_0.01"
-LOGDIR_ROOT='/fast-1/leo/WaveGeneration/logdir'
+LOGDIR_ROOT='/tmp/leo/WaveGeneration/logdir'
 CHECKPOINT_EVERY=20
 NUM_STEPS=int(1e5)
 LEARNING_RATE=1e-3
 L2_REGULARIZATION_STRENGTH=0
+DROPOUT=0
 MOMENTUM=0.9
 MAX_TO_KEEP=5
 
-BIG_FRAME_SIZE=16
-FRAME_SIZE=4
+FRAMES="8,2,2"
+RNNS="1024"
+MLPS="1024,1024,1024"
 Q_LEVELS=256        # Quantification for the amplitude of the audio samples
-DIM=1024            # Number of units in RNNs
-N_RNN=1
-SEQ_LEN=512+BIG_FRAME_SIZE # Size for one BPTT pass
+SEQ_LEN=512 		# Size for one BPTT pass
 EMB_SIZE=256
 AUTOREGRESSIVE_ORDER=5
 OPTIMIZER='adam'
@@ -55,41 +56,40 @@ SILENCE_THRESHOLD=0.01
 
 def get_arguments():
 	parser = argparse.ArgumentParser(description='SampleRnn example network')
+	# Framework
 	parser.add_argument('--num_gpus',         type=int,   default=NUM_GPU)
-	parser.add_argument('--batch_size',       type=int,   default=BATCH_SIZE)
 	parser.add_argument('--data_dir',         type=str,   default=DATA_DIRECTORY)
 	parser.add_argument('--logdir_root',      type=str,   default=LOGDIR_ROOT)
-	parser.add_argument('--checkpoint_every', type=int,   default=CHECKPOINT_EVERY)
-	parser.add_argument('--num_steps',        type=int,   default=NUM_STEPS)
-	parser.add_argument('--learning_rate',    type=float, default=LEARNING_RATE)
-	parser.add_argument('--l2_regularization_strength', type=float, default=L2_REGULARIZATION_STRENGTH)	
-	parser.add_argument('--optimizer',        type=str,   default=OPTIMIZER, choices=list(optimizer_factory.keys()))
-	parser.add_argument('--momentum',         type=float, default=MOMENTUM)
-
+	# Data
 	parser.add_argument('--sample_rate',      type=int,   default=SAMPLE_RATE)
 	parser.add_argument('--sample_size',      type=int,   default=SAMPLE_SIZE)
 	parser.add_argument('--sliding_ratio',    type=float, default=SLIDING_RATIO)
 	parser.add_argument('--silence_threshold',type=int,   default=SILENCE_THRESHOLD)
-
-	parser.add_argument('--seq_len',          type=int, default=SEQ_LEN)
-	parser.add_argument('--big_frame_size',   type=int, default=BIG_FRAME_SIZE)
-	parser.add_argument('--frame_size',       type=int, default=FRAME_SIZE)
-	parser.add_argument('--q_levels',         type=int, default=Q_LEVELS)
-	parser.add_argument('--dim',              type=int, default=DIM)
-	parser.add_argument('--n_rnn',            type=int, choices=list(range(1,6)), default=N_RNN)
-	parser.add_argument('--emb_size',         type=int, default=EMB_SIZE)
-	parser.add_argument('--autoregressive_order', type=int, default=AUTOREGRESSIVE_ORDER)
+	# Architecture
+	parser.add_argument('--tiers', 			  type=str,   default=TIERS)
+	parser.add_argument('--rnns', 			  type=str,   default=RNNS)
+	parser.add_argument('--mlps', 			  type=str,   default=MLPS)
+	parser.add_argument('--q_levels',         type=int,   default=Q_LEVELS)
+	parser.add_argument('--emb_size',         type=int,   default=EMB_SIZE)
+	# Regularization
+	parser.add_argument('--dropout', type=float, default=DROPOUT)	
+	parser.add_argument('--l2_regularization_strength', type=float, default=L2_REGULARIZATION_STRENGTH)	
+	# Optim
+	parser.add_argument('--optimizer',        type=str,   default=OPTIMIZER, choices=list(optimizer_factory.keys()))
+	parser.add_argument('--learning_rate',    type=float, default=LEARNING_RATE)
+	parser.add_argument('--momentum',         type=float, default=MOMENTUM)
+	# Training
+	parser.add_argument('--seq_len',          type=int, default=SEQ_LEN)	# Use for BPTT
+	parser.add_argument('--batch_size',       type=int,   default=BATCH_SIZE)
+	parser.add_argument('--num_steps',        type=int,   default=NUM_STEPS)
+	parser.add_argument('--checkpoint_every', type=int,   default=CHECKPOINT_EVERY)
 	parser.add_argument('--max_checkpoints',  type=int, default=MAX_TO_KEEP)
-	parser.add_argument('--num_example_generated',  type=int, default=NUM_EXEMPLE_GENERATED)
 	parser.add_argument('--load_existing_model',  type=int, default=False)
+	# Generation
+	parser.add_argument('--num_example_generated',  type=int, default=NUM_EXEMPLE_GENERATED)
+	# Debug
 	parser.add_argument('--summary',  type=bool, default=False)
 	return parser.parse_args()
-
-def init_directory(path):
-	if os.path.isdir(path):
-		shutil.rmtree(path)
-	os.makedirs(path)
-	return
 
 def save(saver, sess, logdir, step):
 		model_name = 'model.ckpt'
@@ -124,15 +124,18 @@ def load(saver, sess, logdir):
 		return None
 
 def create_model(args):
+	frames = [int(item) for item in args.frames.split(',')]
+	rnns = [int(item) for item in args.rnns.split(',')]
+	mlps = [int(item) for item in args.mlps.split(',')]
+	import pdb; pdb.set_trace()
 	# Create network.
 	net = SampleRnnModel(
-		big_frame_size=args.big_frame_size,
-		frame_size=args.frame_size,
+		frames=frames,
+		rnns=rnns,
+		mlps=mlps,
 		q_levels=args.q_levels,
-		dim=args.dim,
-		n_rnn=args.n_rnn,
 		emb_size=args.emb_size,
-		autoregressive_order=args.autoregressive_order,
+		dropout=args.dropout,
 		summary=args.summary)
 	return net
 
@@ -236,10 +239,13 @@ def generate_and_save_samples(step, length, sample_rate, num_example_generated, 
 	return
 					
 def main():
+	##############################
+	# Get args	
 	args = get_arguments()
 	if args.l2_regularization_strength == 0:
 			args.l2_regularization_strength = None
-
+	seq_len_padded = args.seq_len + args.big_frame_size
+	##############################
 
 	##############################
 	# Get data directory
@@ -258,18 +264,20 @@ def main():
 	# Summary
 	if args.summary:
 		logdir_summary = os.path.join(args.logdir_root, 'summary')
-		init_directory(logdir_summary)
+		ops.init_directory(logdir_summary)
 	# Save	
 	logdir_save = os.path.join(args.logdir_root, 'save')
 	# Wave
 	logdir_wav = os.path.join(args.logdir_root, 'wav')
-	init_directory(logdir_wav)
+	ops.init_directory(logdir_wav)
 	##############################
 
 	##############################
 	# Get Data and Split them
 	# Get list of data chunks
 	chunk_list = build_db.find_files(npy_dir, pattern="*.npy")
+	# To always have the same train/validate split, init the random seed
+	random.seed(210691)
 	random.shuffle(chunk_list)
 	# Adapt batch_size if we have very few files
 	num_chunk = len(chunk_list) 
@@ -299,7 +307,7 @@ def main():
 	##############################	
 	# Placeholders
 	ttt = time.time()
-	train_input_batch_rnn_PH = tf.placeholder(tf.float32, shape=(None, args.seq_len, 1), name="train_input_batch_rnn")
+	train_input_batch_rnn_PH = tf.placeholder(tf.float32, shape=(None, seq_len_padded, 1), name="train_input_batch_rnn")
 	generate_input_batch_rnn_PH = tf.placeholder(tf.float32, shape=(None, args.big_frame_size, 1), name="generate_input_batch_rnn")
 	big_frame_state_PH = tf.placeholder(tf.float32, shape=(None, args.dim), name="big_frame_state")
 	frame_state_PH = tf.placeholder(tf.float32, shape=(None, args.dim), name="frame_state")
@@ -311,7 +319,7 @@ def main():
 		train_input_batch_rnn_PH,
 		big_frame_state_PH,
 		frame_state_PH,
-		args.seq_len,
+		seq_len_padded,
 		l2_regularization_strength=args.l2_regularization_strength)
 
 	grad_vars = optim.compute_gradients(loss_N, tf.trainable_variables())
@@ -370,7 +378,7 @@ def main():
 			print("TTT: Load previously trained model : {}".format(time.time()-ttt))
 		else:
 			# Remove existing models
-			init_directory(logdir_save)
+			ops.init_directory(logdir_save)
 			saved_global_step = -1
 		##############################
 
@@ -380,7 +388,7 @@ def main():
 		chunk_counter_train = 0
 		length_generation = int(N_SECS*args.sample_rate)  # For generation
 		audio_length = args.sample_size - args.big_frame_size
-		bptt_length = args.seq_len - args.big_frame_size
+		bptt_length = args.seq_len
 		stateful_rnn_length = audio_length//bptt_length 
 		val_tab = np.zeros((args.num_steps))
 		overfitting = False
@@ -395,8 +403,9 @@ def main():
 			for step in range(saved_global_step + 1, args.num_steps):
 				if (step-1) % 20 == 0 and step>20:
 					generate_and_save_samples(step, length_generation, args.sample_rate, args.num_example_generated, net, gen_input, gen_output, sess, logdir_wav)
-				if step==0:
-					generate_and_save_samples(step, length_generation, args.sample_rate, args.num_example_generated, net, gen_input, gen_output, sess, logdir_wav)
+				# Just to confirm that 0 is white noise. It is indeed
+				# if step==0:
+				# 	generate_and_save_samples(step, length_generation, args.sample_rate, args.num_example_generated, net, gen_input, gen_output, sess, logdir_wav)
 
 				##############################
 				# Initialize states, indices and losses
@@ -418,11 +427,11 @@ def main():
 					##############################
 					# Write data in input ict
 					inp_dict={}
-					inp_dict[train_input_batch_rnn_PH] = train_matrix[:, idx_begin: idx_begin+args.seq_len,:]
+					inp_dict[train_input_batch_rnn_PH] = train_matrix[:, idx_begin: idx_begin+seq_len_padded,:]
 					inp_dict[big_frame_state_PH] = final_big_s
 					inp_dict[frame_state_PH] = final_s
 					inp_dict[K.learning_phase()] = 1
-					idx_begin += args.seq_len-args.big_frame_size
+					idx_begin += args.seq_len
 					##############################
 
 					##############################
@@ -455,11 +464,11 @@ def main():
 				loss_val_sum = 0
 				for i in range(0, stateful_rnn_length):
 					valid_dict={}
-					valid_dict[train_input_batch_rnn_PH] = valid_matrix[:, idx_begin: idx_begin+args.seq_len,:]
+					valid_dict[train_input_batch_rnn_PH] = valid_matrix[:, idx_begin: idx_begin+seq_len_padded,:]
 					valid_dict[big_frame_state_PH] = final_big_s_val
 					valid_dict[frame_state_PH] = final_s_val
 					valid_dict[K.learning_phase()] = 0
-					idx_begin += args.seq_len-args.big_frame_size
+					idx_begin += args.seq_len
 
 					loss_val, final_big_s_val, final_s_val = sess.run(valid_list, feed_dict=valid_dict)
 					loss_val_sum += loss_val
@@ -481,10 +490,8 @@ def main():
 					save(saver, sess, logdir_save, step)
 					last_saved_step = step
 
+				import pdb; pdb.set_trace()
 				if overfitting:
-					save(saver, sess, logdir_save, step)
-					last_saved_step = step
-					generate_and_save_samples(step, length_generation, args.sample_rate, args.num_example_generated, net, gen_input, gen_output, sess, logdir_wav)
 					break
 
 		except KeyboardInterrupt:
@@ -492,8 +499,10 @@ def main():
 			# is on its own line.
 			print()
 		finally:
+			generate_and_save_samples(step, length_generation, args.sample_rate, args.num_example_generated, net, gen_input, gen_output, sess, logdir_wav)
+			np.save(os.path.join(args.logdir_root, 'validation_loss.npy'))
 			if step > last_saved_step:
-				save(saver, sess, logdir_save, step)
+				save(saver, sess, logdir_save, step)	
 
 if __name__ == '__main__':
 		main()
