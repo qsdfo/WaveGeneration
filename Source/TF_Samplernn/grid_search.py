@@ -68,7 +68,7 @@ SRC=/home/crestel/WaveGeneration/Source/TF_Samplernn
 cd $SRC"""
 		
 		text_pbs += """
-python train_TEST.py \
+python main.py \
 	--num_gpus=0 \
 	--batch_size=64 \
 	--data_dir=\
