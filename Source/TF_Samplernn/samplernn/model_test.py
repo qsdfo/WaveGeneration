@@ -10,15 +10,18 @@ from keras.layers import Dense, Dropout
 from samplernn.weight_summary import keras_layer_summary, variable_summary
 
 class SampleRnnModel(object):
-	def __init__(self, big_frame_size, frame_size,
-		q_levels, dim, n_rnn, emb_size, autoregressive_order, summary):
-		self.big_frame_size = big_frame_size
-		self.frame_size = frame_size
-		self.q_levels = q_levels
-		self.dim = dim
-		self.n_rnn = n_rnn
+	def __init__(self, frames, rnns, mlps, q_levels, emb_size, dropout, summary):
+		self.big_frame_size=frames[0]
+		self.frame_size=frames[1]
+		self.autoregressive_order=frames[2]
+
+		self.rnns=rnns
+		self.mlps=mlps
+
+		self.q_levels=q_levels
 		self.emb_size=emb_size
-		self.autoregressive_order=autoregressive_order
+
+		self.dropout=dropout
 		self.summarize=summary
 
 		self._init_weigths()
@@ -31,13 +34,17 @@ class SampleRnnModel(object):
 		# Big Frame level
 		self.big_upsampling_ratio = self.big_frame_size//self.frame_size 
 		self.big_project_dim = self.dim * self.big_upsampling_ratio
-		self.weights["big_frame_rnn"] = GRU(self.dim, input_shape=(204, 205), return_sequences=True, return_state=True, activation='relu', dropout=0)
+		self.weights["big_frame_rnn"] = []
+		for num_unit in self.rnns:
+			 self.weights["big_frame_rnn"].append(GRU(num_unit, return_sequences=True, return_state=True, activation='relu', dropout=self.dropout))
 		self.weights["big_frame_proj_weights"] = tf.get_variable("big_frame_proj_weights", [self.dim, self.big_project_dim], dtype=tf.float32)
 
 		# Frame level
 		self.fr_upsampling_ratio = self.frame_size
 		self.fr_project_dim = self.dim * self.fr_upsampling_ratio
-		self.weights["frame_rnn"] = GRU(self.dim, return_sequences=True, return_state=True, activation='relu', dropout=0)
+		self.weights["frame_rnn"]=[]
+		for num_unit in self.rnns:
+			 self.weights["frame_rnn"].append(GRU(self.dim, return_sequences=True, return_state=True, activation='relu', dropout=self.dropout))
 		self.weights["frame_proj_weights"] = tf.get_variable("frame_proj_weights", [self.dim, self.fr_project_dim], dtype=tf.float32)
 		self.weights["frame_cell_proj_weights"] = tf.get_variable("frame_cell_proj_weights", [self.frame_size, self.dim], dtype=tf.float32)
 
@@ -50,9 +57,10 @@ class SampleRnnModel(object):
 		sample_filter_shape = [self.emb_size*self.autoregressive_order, 1, self.dim]  # self.emb_size*self.autoregressive_order : le noyau de convolution couvre un horizon de deux samples. 
 		# Cf l'argument stride dans la fonction conv1D plus bas : on fait des pas de taille emb_size a chaque fois
 		self.weights["sample_filter"] = tf.get_variable("sample_filter", sample_filter_shape, initializer=filter_initializer)
-		self.weights["sample_mlp1_weights"] = tf.get_variable("sample_mlp1", [self.dim, self.dim], dtype=tf.float32)
-		self.weights["sample_mlp2_weights"] = tf.get_variable("sample_mlp2", [self.dim, self.dim], dtype=tf.float32)
-		self.weights["sample_mlp3_weights"] = tf.get_variable("sample_mlp3", [self.dim, self.q_levels], dtype=tf.float32)
+		self.weights["sample_mlp"]=[]
+		for layer_ind in range(len(self.rnns)-1):
+			 self.weights["sample_mlp"].append(tf.get_variable("sample_mlp_" + str(layer_ind), [self.mlps[layer_ind], self.mlps[layer_ind+1]], dtype=tf.float32))
+		self.weights["sample_mlp"].append(tf.get_variable("sample_mlp_" + str(len(self.rnns)), [self.mlps[-1], self.q_levels], dtype=tf.float32))
 
 		# Summarize weights (keras layers are initialized after input are fed)
 		if self.summarize:
