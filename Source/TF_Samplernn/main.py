@@ -21,10 +21,11 @@ import build_db
 import early_stopping
 import samplernn.ops as ops
 
-# DATA_DIRECTORY='/fast-1/leo/WaveGeneration/Data/contrabass_no_cond/ordinario'
-DATA_DIRECTORY='/tmp/leo/WaveGeneration/Data/contrabass_no_cond/ordinario'
-# DATA_DIRECTORY="/Users/leo/Recherche/WaveGeneration/Data/contrabass_no_cond/ordinario_xs/8000_16392_0.01"
-LOGDIR_ROOT='/tmp/leo/WaveGeneration/logdir'
+
+PREFIX="/fast-1/leo"
+DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/contrabass_no_cond/ordinario'
+LOGDIR_ROOT=PREFIX+'/WaveGeneration/logdir/1'
+
 CHECKPOINT_EVERY=20
 NUM_STEPS=int(1e5)
 LEARNING_RATE=1e-3
@@ -33,13 +34,12 @@ DROPOUT=0
 MOMENTUM=0.9
 MAX_TO_KEEP=5
 
-FRAMES="8,2,2"
-RNNS="1024"
-MLPS="1024,1024,1024"
+TIERS="8,2,2"
+RNNS="100,101"
+MLPS="200,201,202"
 Q_LEVELS=256        # Quantification for the amplitude of the audio samples
 SEQ_LEN=512 		# Size for one BPTT pass
 EMB_SIZE=256
-AUTOREGRESSIVE_ORDER=5
 OPTIMIZER='adam'
 
 N_SECS=3
@@ -52,7 +52,6 @@ SAMPLE_RATE=8000
 SAMPLE_SIZE=2**14+8
 SLIDING_RATIO=0.75
 SILENCE_THRESHOLD=0.01
-
 
 def get_arguments():
 	parser = argparse.ArgumentParser(description='SampleRnn example network')
@@ -124,13 +123,12 @@ def load(saver, sess, logdir):
 		return None
 
 def create_model(args):
-	frames = [int(item) for item in args.frames.split(',')]
+	tiers = [int(item) for item in args.tiers.split(',')]
 	rnns = [int(item) for item in args.rnns.split(',')]
 	mlps = [int(item) for item in args.mlps.split(',')]
-	import pdb; pdb.set_trace()
 	# Create network.
 	net = SampleRnnModel(
-		frames=frames,
+		tiers=tiers,
 		rnns=rnns,
 		mlps=mlps,
 		q_levels=args.q_levels,
@@ -145,23 +143,27 @@ def create_gen_wav_para(net):
 		gen_input = {}
 		gen_output = {}
 
-		gen_input['big_frame'] = tf.placeholder(tf.float32, shape=(None, net.big_frame_size, 1), name="big_frame")
-		gen_input['big_frame_state'] = tf.placeholder(tf.float32, shape=(None, net.dim), name="big_frame_state")
+		gen_input['big_frame'] = tf.placeholder(tf.float32, shape=(None, net.big_frame_size, 1), name="gen_big_frame")
+		gen_input['big_frame_state'] = []
+		for layer, rnn_dim in enumerate(net.rnns):
+			gen_input['big_frame_state'].append(tf.placeholder(tf.float32, shape=(None, rnn_dim), name="gen_big_frame_state_" + str(layer)))
 
-		gen_input['frame_from_big'] = tf.placeholder(tf.float32, shape=(None, 1, net.dim), name='frame_from_big')
-		gen_input['frame'] = tf.placeholder(tf.float32, (None, net.frame_size, 1), name="frame")
-		gen_input['frame_state'] = tf.placeholder(tf.float32, (None, net.dim), name="frame_state")
+		gen_input['frame_from_big'] = tf.placeholder(tf.float32, shape=(None, 1, net.rnns[0]), name='gen_frame_from_big')
+		gen_input['frame'] = tf.placeholder(tf.float32, (None, net.frame_size, 1), name="gen_frame")
+		gen_input['frame_state'] = []
+		for layer, rnn_dim in enumerate(net.rnns):
+			gen_input['frame_state'].append(tf.placeholder(tf.float32, (None, rnn_dim), name="gen_frame_state"))
 
-		gen_input['sample_from_frame'] = tf.placeholder(tf.float32, shape=(None, 1, net.dim), name='frame_from_big')
-		gen_input['sample'] = tf.placeholder(tf.int32, (None, net.autoregressive_order, 1), name="frame")
+		gen_input['sample_from_frame'] = tf.placeholder(tf.float32, shape=(None, 1, net.mlps[0]), name='gen_frame_from_big')
+		gen_input['sample'] = tf.placeholder(tf.int32, (None, net.autoregressive_order, 1), name="gen_frame")
 
-		gen_output['big_frame'], gen_output['big_frame_state'] = net._create_network_BigFrame(big_frame_state=gen_input['big_frame_state'],
+		gen_output['big_frame'], gen_output['big_frame_state'] = net._create_network_BigFrame(big_frame_states=gen_input['big_frame_state'],
 			big_input_sequences=gen_input['big_frame'],
 			seq_len=None)
 
 		gen_output['frame'], gen_output['frame_state'] = net._create_network_Frame(
 			big_frame_outputs=gen_input['frame_from_big'],
-			frame_state=gen_input['frame_state'],
+			frame_states=gen_input['frame_state'],
 			input_sequences=gen_input['frame'],
 			seq_len=None)
 
@@ -188,8 +190,11 @@ def generate_and_save_samples(step, length, sample_rate, num_example_generated, 
 	samples[:, :net.big_frame_size,:] = np.int32(net.q_levels//2)
 
 	# Initialize rnn_states
-	final_big_s = np.zeros((num_example_generated, net.dim), dtype=np.float32)
-	final_s = np.zeros((num_example_generated, net.dim), dtype=np.float32)
+	final_big_s = []
+	final_s = []
+	for rnn_dim in net.rnns:
+		final_big_s.append(np.zeros((num_example_generated, rnn_dim), dtype=np.float32))
+		final_s.append(np.zeros((num_example_generated, rnn_dim), dtype=np.float32))
 	
 	# Output of different levels of RNN
 	big_frame_out = None
@@ -201,20 +206,24 @@ def generate_and_save_samples(step, length, sample_rate, num_example_generated, 
 		if t % net.big_frame_size == 0:
 			big_frame_out = None
 			big_input_sequences = samples[:, t-net.big_frame_size:t,:].astype('float32')
-			big_frame_out, final_big_s = \
-			sess.run([gen_output['big_frame'] , gen_output['big_frame_state']],
-				feed_dict={gen_input['big_frame'] : big_input_sequences,
-					gen_input['big_frame_state'] : final_big_s,
-					K.learning_phase() : 0})
+			inp_dict={}
+			inp_dict[gen_input['big_frame']] = big_input_sequences
+			for state_PH, state_value in zip(gen_input['big_frame_state'], final_big_s):
+				inp_dict[state_PH] = state_value
+			inp_dict[K.learning_phase()] = 0
+			big_frame_out, final_big_s = sess.run([gen_output['big_frame'] , gen_output['big_frame_state']], feed_dict=inp_dict)		
+
 		#frame 
 		if t % net.frame_size == 0:
 			frame_input_sequences = samples[:, t-net.frame_size:t,:].astype('float32')
 			big_frame_output_idx = (t//net.frame_size)%(net.big_frame_size//net.frame_size)
-			frame_out, final_s = sess.run([gen_output['frame'], gen_output['frame_state']],
-				feed_dict={gen_input['frame_from_big'] : big_frame_out[:,[big_frame_output_idx],:],
-					gen_input['frame'] : frame_input_sequences,
-					gen_input['frame_state'] : final_s,
-					K.learning_phase() : 0})
+			inp_dict = {}
+			inp_dict[gen_input['frame_from_big']] = big_frame_out[:,[big_frame_output_idx],:]
+			inp_dict[gen_input['frame']] = frame_input_sequences
+			for state_PH, state_value in zip(gen_input['frame_state'], final_s):
+				inp_dict[state_PH] = state_value
+			inp_dict[K.learning_phase()] = 0
+			frame_out, final_s = sess.run([gen_output['frame'], gen_output['frame_state']], feed_dict=inp_dict)
 		
 		#sample
 		sample_input_sequences = samples[:, t-net.autoregressive_order:t,:]
@@ -239,12 +248,16 @@ def generate_and_save_samples(step, length, sample_rate, num_example_generated, 
 	return
 					
 def main():
+
 	##############################
 	# Get args	
 	args = get_arguments()
 	if args.l2_regularization_strength == 0:
 			args.l2_regularization_strength = None
-	seq_len_padded = args.seq_len + args.big_frame_size
+	tiers = [int(item) for item in args.tiers.split(',')]
+	rnns = [int(item) for item in args.rnns.split(',')]
+	mlps = [int(item) for item in args.mlps.split(',')]
+	seq_len_padded = args.seq_len + tiers[0]
 	##############################
 
 	##############################
@@ -260,8 +273,8 @@ def main():
 	##############################
 
 	##############################
-	# Logging
-	# Summary
+	# Init dirs
+	ops.init_directory(args.logdir_root)
 	if args.summary:
 		logdir_summary = os.path.join(args.logdir_root, 'summary')
 		ops.init_directory(logdir_summary)
@@ -308,9 +321,12 @@ def main():
 	# Placeholders
 	ttt = time.time()
 	train_input_batch_rnn_PH = tf.placeholder(tf.float32, shape=(None, seq_len_padded, 1), name="train_input_batch_rnn")
-	generate_input_batch_rnn_PH = tf.placeholder(tf.float32, shape=(None, args.big_frame_size, 1), name="generate_input_batch_rnn")
-	big_frame_state_PH = tf.placeholder(tf.float32, shape=(None, args.dim), name="big_frame_state")
-	frame_state_PH = tf.placeholder(tf.float32, shape=(None, args.dim), name="frame_state")
+	generate_input_batch_rnn_PH = tf.placeholder(tf.float32, shape=(None, args.tiers[0], 1), name="generate_input_batch_rnn")
+	big_frame_state_PH = []
+	frame_state_PH = []
+	for layer, rnn_dim in enumerate(rnns):
+		big_frame_state_PH.append(tf.placeholder(tf.float32, shape=(None, rnn_dim), name="big_frame_state_" + str(layer)))
+		frame_state_PH.append(tf.placeholder(tf.float32, shape=(None, rnn_dim), name="frame_state_" + str(layer)))
 	##############################
 
 	##############################
@@ -387,7 +403,7 @@ def main():
 		step = None
 		chunk_counter_train = 0
 		length_generation = int(N_SECS*args.sample_rate)  # For generation
-		audio_length = args.sample_size - args.big_frame_size
+		audio_length = args.sample_size - int(args.tiers[0])
 		bptt_length = args.seq_len
 		stateful_rnn_length = audio_length//bptt_length 
 		val_tab = np.zeros((args.num_steps))
@@ -409,8 +425,11 @@ def main():
 
 				##############################
 				# Initialize states, indices and losses
-				final_big_s = np.zeros((batch_size, args.dim), dtype=np.float32)
-				final_s = np.zeros((batch_size, args.dim), dtype=np.float32)
+				final_big_s = []
+				final_s = []
+				for rnn_dim in rnns:
+					final_big_s.append(np.zeros((batch_size, rnn_dim), dtype=np.float32))
+					final_s.append(np.zeros((batch_size, rnn_dim), dtype=np.float32))
 				loss_sum = 0
 				idx_begin = 0
 				last_saved_step = saved_global_step
@@ -428,8 +447,10 @@ def main():
 					# Write data in input ict
 					inp_dict={}
 					inp_dict[train_input_batch_rnn_PH] = train_matrix[:, idx_begin: idx_begin+seq_len_padded,:]
-					inp_dict[big_frame_state_PH] = final_big_s
-					inp_dict[frame_state_PH] = final_s
+					for state_PH, state_value in zip(big_frame_state_PH, final_big_s):
+						inp_dict[state_PH] = state_value
+					for state_PH, state_value in zip(frame_state_PH, final_s):
+						inp_dict[state_PH] = state_value
 					inp_dict[K.learning_phase()] = 1
 					idx_begin += args.seq_len
 					##############################
@@ -456,8 +477,11 @@ def main():
 				# Get valid batch
 				# For validation we can make one huge batch
 				valid_matrix, _ = load_mat(valid_chunks, len(valid_chunks), 0)
-				final_big_s_val = np.zeros((len(valid_chunks), args.dim), dtype=np.float32)
-				final_s_val = np.zeros((len(valid_chunks), args.dim), dtype=np.float32)
+				final_big_s_val = []
+				final_s_val = []
+				for rnn_dim in rnns:
+					final_big_s_val.append(np.zeros((len(valid_chunks), rnn_dim), dtype=np.float32))
+					final_s_val.append(np.zeros((len(valid_chunks), rnn_dim), dtype=np.float32))
 				idx_begin = 0
 				##############################
 
@@ -465,8 +489,10 @@ def main():
 				for i in range(0, stateful_rnn_length):
 					valid_dict={}
 					valid_dict[train_input_batch_rnn_PH] = valid_matrix[:, idx_begin: idx_begin+seq_len_padded,:]
-					valid_dict[big_frame_state_PH] = final_big_s_val
-					valid_dict[frame_state_PH] = final_s_val
+					for state_PH, state_value in zip(big_frame_state_PH, final_big_s_val):
+						valid_dict[state_PH] = state_value
+					for state_PH, state_value in zip(frame_state_PH, final_s_val):
+						valid_dict[state_PH] = state_value
 					valid_dict[K.learning_phase()] = 0
 					idx_begin += args.seq_len
 
@@ -490,7 +516,18 @@ def main():
 					save(saver, sess, logdir_save, step)
 					last_saved_step = step
 
-				import pdb; pdb.set_trace()
+				##############################
+				##############################
+				##############################
+				##############################
+				##############################
+				overfitting = (step > 1)
+				##############################
+				##############################
+				##############################
+				##############################
+				##############################
+
 				if overfitting:
 					break
 
@@ -500,7 +537,7 @@ def main():
 			print()
 		finally:
 			generate_and_save_samples(step, length_generation, args.sample_rate, args.num_example_generated, net, gen_input, gen_output, sess, logdir_wav)
-			np.save(os.path.join(args.logdir_root, 'validation_loss.npy'))
+			np.save(os.path.join(args.logdir_root, 'validation_loss.npy'), val_tab[:step])
 			if step > last_saved_step:
 				save(saver, sess, logdir_save, step)	
 
