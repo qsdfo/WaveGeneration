@@ -23,7 +23,8 @@ import samplernn.ops as ops
 
 
 PREFIX="/fast-1/leo"
-DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/contrabass_no_cond/ordinario'
+# DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/contrabass_no_cond/ordinario'
+DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/ordinario_xs'
 LOGDIR_ROOT=PREFIX+'/WaveGeneration/logdir/1'
 
 CHECKPOINT_EVERY=20
@@ -266,10 +267,21 @@ def main():
 	files_dir = args.data_dir
 	npy_dir = files_dir + '/' + config_str
 	# Check if exists
-	if not os.path.isdir(npy_dir):
+	lock_file_db = files_dir + '/lock'
+	if (not os.path.isdir(npy_dir)) and (not os.path.isfile(lock_file_db)):
 		# Build if not
+		ff = open(lock_file_db, 'w')
+		import pdb; pdb.set_trace()
 		build_db.main(files_dir, npy_dir, args.sample_rate, args.sample_size, args.sliding_ratio, args.silence_threshold)
+		ff.close()
+		os.remove(lock_file_db)
 		# data_statistics.bar_activations(save_dir, save_dir, sample_size)
+	else:
+		print("Have to wait")
+		import time
+		while os.path.isfile(lock_file_db):
+			# Wait for the end of construction by another process
+			time.sleep(1)
 	##############################
 
 	##############################
@@ -515,18 +527,6 @@ def main():
 				if step % args.checkpoint_every == 0:
 					save(saver, sess, logdir_save, step)
 					last_saved_step = step
-
-				##############################
-				##############################
-				##############################
-				##############################
-				##############################
-				overfitting = (step > 1)
-				##############################
-				##############################
-				##############################
-				##############################
-				##############################
 
 				if overfitting:
 					break
