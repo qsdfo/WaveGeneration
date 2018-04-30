@@ -6,14 +6,18 @@ from samplernn.ops import init_directory
 
 if __name__ =="__main__":
 
-	result_folder = "/tmp/leo/WaveGeneration/logdir"
+	# PREFIX="/fast-1/leo"
+	PREFIX="/sb/project/ymd-084-aa/leo"
+	DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/contrabass_no_cond/ordinario'
+	LOGDIR_ROOT=PREFIX+'/WaveGeneration/logdir'
+
 	# Carreful ! Will erase previous results
-	init_directory(result_folder)
+	init_directory(LOGDIR_ROOT)
 
 	# Hparams
 	hparams = {
 		"l2_regularization_strength": [0, 1e-3],
-		"dropout":[0]
+		"dropout":[0, 0.5],
 		"sample_size": [2**15+8],
 		"seq_len": [1024],
 		"tiers": [
@@ -37,8 +41,10 @@ if __name__ =="__main__":
 	hparams = list(ParameterGrid(hparams))
 
 	for index, hparam in enumerate(hparams):
+		if index > 0:
+			continue
 		# Create folder
-		param_folder = result_folder + '/' + str(index)
+		param_folder = LOGDIR_ROOT + '/' + str(index)
 		os.mkdir(param_folder)
 
 		# Write config
@@ -57,18 +63,17 @@ if __name__ =="__main__":
 #PBS -l nodes=1:ppn=2:gpus=1
 #PBS -l walltime=5:00:00
 
-./start_env.sh
 module load foss/2015b
 module load Tensorflow/1.0.0-Python-3.5.2
 source ~/Virtualenvs/tf_3/bin/activate
 
-SRC=/home/crestel/WaveGeneration/Source/TF_Samplernn
+SRC=/home/crestel/Source/WaveGeneration/Source/TF_Samplernn
 cd $SRC
 
 python main.py \\
 	--num_gpus=0 \\
 	--batch_size=64 \\
-	--data_dir=/tmp/leo/WaveGeneration/Data/contrabass_no_cond/ordinario\\
+	--data_dir=""" + DATA_DIRECTORY + """\\
 	--logdir_root=""" + param_folder + """ \\
 	--checkpoint_every=10 \\
 	--num_steps=100000 \\

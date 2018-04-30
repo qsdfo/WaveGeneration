@@ -22,7 +22,8 @@ import early_stopping
 import samplernn.ops as ops
 
 
-PREFIX="/fast-1/leo"
+# PREFIX="/fast-1/leo"
+PREFIX="/sb/project/ymd-084-aa/leo"
 # DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/contrabass_no_cond/ordinario'
 DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/ordinario_xs'
 LOGDIR_ROOT=PREFIX+'/WaveGeneration/logdir/1'
@@ -271,7 +272,6 @@ def main():
 	if (not os.path.isdir(npy_dir)) and (not os.path.isfile(lock_file_db)):
 		# Build if not
 		ff = open(lock_file_db, 'w')
-		import pdb; pdb.set_trace()
 		build_db.main(files_dir, npy_dir, args.sample_rate, args.sample_size, args.sliding_ratio, args.silence_threshold)
 		ff.close()
 		os.remove(lock_file_db)
