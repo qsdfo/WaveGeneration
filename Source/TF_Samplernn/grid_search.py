@@ -21,7 +21,7 @@ if __name__ =="__main__":
 		"sample_size": [2**15+8],
 		"seq_len": [1024],
 		"tiers": [
-			"32,16,8",
+			# "32,16,8",
 			"16,8,4", "16,4,2",
 			"8,4,2", "8,2,2"
 		],
@@ -58,9 +58,11 @@ if __name__ =="__main__":
 
 		text_pbs = """#!/bin/bash
 
+#PBS -N """ + script_name + """
+#PBS -o job_outputs/""" + script_name + """
 #PBS -j oe
-#PBS -N job_outputs/""" + script_name + """
 #PBS -l nodes=1:ppn=2:gpus=1
+#PBS -l pmem=10000m
 #PBS -l walltime=5:00:00
 
 module load foss/2015b

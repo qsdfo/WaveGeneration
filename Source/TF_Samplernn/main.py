@@ -65,7 +65,7 @@ def get_arguments():
 	parser.add_argument('--sample_rate',      type=int,   default=SAMPLE_RATE)
 	parser.add_argument('--sample_size',      type=int,   default=SAMPLE_SIZE)
 	parser.add_argument('--sliding_ratio',    type=float, default=SLIDING_RATIO)
-	parser.add_argument('--silence_threshold',type=int,   default=SILENCE_THRESHOLD)
+	parser.add_argument('--silence_threshold',type=float,   default=SILENCE_THRESHOLD)
 	# Architecture
 	parser.add_argument('--tiers', 			  type=str,   default=TIERS)
 	parser.add_argument('--rnns', 			  type=str,   default=RNNS)
@@ -85,7 +85,7 @@ def get_arguments():
 	parser.add_argument('--num_steps',        type=int,   default=NUM_STEPS)
 	parser.add_argument('--checkpoint_every', type=int,   default=CHECKPOINT_EVERY)
 	parser.add_argument('--max_checkpoints',  type=int, default=MAX_TO_KEEP)
-	parser.add_argument('--load_existing_model',  type=int, default=False)
+	parser.add_argument('--load_existing_model',  type=bool, default=False)
 	# Generation
 	parser.add_argument('--num_example_generated',  type=int, default=NUM_EXEMPLE_GENERATED)
 	# Debug
