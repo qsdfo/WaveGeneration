@@ -74,14 +74,17 @@ class Model(object):
         losses = []
         terminal = False
         i = 0
-        import pdb; pdb.set_trace()
         while not terminal:
             i += 1
             cost = self._train(inputs, targets)
             if cost < 1e-1:
                 terminal = True
+
+            if i > 30:
+                terminal = True
+
             losses.append(cost)
-            if i % 50 == 0:
+            if i % 10 == 0:
                 print("Step {:d}: {:.4f}".format(i, cost))
             #     plt.plot(losses)
             #     plt.show()
