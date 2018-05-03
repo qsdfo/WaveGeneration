@@ -5,11 +5,13 @@ import subprocess
 from samplernn.ops import init_directory
 
 if __name__ =="__main__":
+	LOCAL = True
+	# PREFIX="/sb/project/ymd-084-aa/leo"
+	# PREFIX="/home/leo"
+	PREFIX="/fast-1/leo"
 
-	# PREFIX="/fast-1/leo"
-	PREFIX="/sb/project/ymd-084-aa/leo"
 	DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/contrabass_no_cond/ordinario'
-	LOGDIR_ROOT=PREFIX+'/WaveGeneration/logdir'
+	LOGDIR_ROOT=PREFIX+'/WaveGeneration/TF_Samplernn/logdir'
 
 	# Carreful ! Will erase previous results
 	init_directory(LOGDIR_ROOT)
@@ -41,8 +43,9 @@ if __name__ =="__main__":
 	hparams = list(ParameterGrid(hparams))
 
 	for index, hparam in enumerate(hparams):
-		if index > 0:
-			continue
+		
+		print("Training config {:d}".format(index))
+
 		# Create folder
 		param_folder = LOGDIR_ROOT + '/' + str(index)
 		os.mkdir(param_folder)
@@ -51,29 +54,7 @@ if __name__ =="__main__":
 		with open(param_folder + '/hparam.json', 'w') as fp:
 			json.dump(hparam, fp)
 
-		# Pbs script
-		file_pbs = param_folder + '/submit.pbs'
-
-		script_name = "WaveGen_" + str(index)
-
-		text_pbs = """#!/bin/bash
-
-#PBS -N """ + script_name + """
-#PBS -o job_outputs/""" + script_name + """
-#PBS -j oe
-#PBS -l nodes=1:ppn=2:gpus=1
-#PBS -l pmem=10000m
-#PBS -l walltime=5:00:00
-
-module load foss/2015b
-module load Tensorflow/1.0.0-Python-3.5.2
-source ~/Virtualenvs/tf_3/bin/activate
-
-SRC=/home/crestel/Source/WaveGeneration/Source/TF_Samplernn
-cd $SRC
-
-python main.py \\
-	--num_gpus=0 \\
+		main_command = """python main.py \\
 	--batch_size=64 \\
 	--data_dir=""" + DATA_DIRECTORY + """\\
 	--logdir_root=""" + param_folder + """ \\
@@ -96,10 +77,35 @@ python main.py \\
 	--max_checkpoints=5 \\
 	--num_example_generated=5 \\
 	--load_existing_model=False \\
-	--summary=False
-"""
+	--summary=False"""
 
-		with open(file_pbs, 'w') as f:
-			f.write(text_pbs)
+		if LOCAL:
+			os.system(main_command)
+		else:
+			# Pbs script
+			file_pbs = param_folder + '/submit.pbs'
 
-		subprocess.check_output('qsub ' + file_pbs, shell=True)
+			script_name = "WaveGen_" + str(index)
+
+			text_pbs = """#!/bin/bash
+
+#PBS -N """ + script_name + """
+#PBS -o job_outputs/""" + script_name + """
+#PBS -j oe
+#PBS -l nodes=1:ppn=2:gpus=1
+#PBS -l pmem=10000m
+#PBS -l walltime=5:00:00
+
+module load foss/2015b
+module load Tensorflow/1.0.0-Python-3.5.2
+source ~/Virtualenvs/tf_3/bin/activate
+
+SRC=/home/crestel/Source/WaveGeneration/Source/TF_Samplernn
+cd $SRC
+
+""" + main_command
+
+			with open(file_pbs, 'w') as f:
+				f.write(text_pbs)
+
+			subprocess.check_output('qsub ' + file_pbs, shell=True)

@@ -7,6 +7,7 @@ import sys
 import shutil
 import time
 import pickle as pkl
+from multiprocessing.pool import ThreadPool
 
 import librosa
 import numpy as np
@@ -22,11 +23,13 @@ import early_stopping
 import samplernn.ops as ops
 
 
-# PREFIX="/fast-1/leo"
-PREFIX="/sb/project/ymd-084-aa/leo"
-# DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/contrabass_no_cond/ordinario'
-DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/ordinario_xs'
-LOGDIR_ROOT=PREFIX+'/WaveGeneration/logdir/1'
+# PREFIX="/home/leo"
+PREFIX="/fast-1/leo"
+# PREFIX="/sb/project/ymd-084-aa/leo"
+
+DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/contrabass_no_cond/ordinario'
+# DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/ordinario_xs'
+LOGDIR_ROOT=PREFIX+'/WaveGeneration/TF_Samplernn/logdir/0'
 
 CHECKPOINT_EVERY=20
 NUM_STEPS=int(1e5)
@@ -36,11 +39,11 @@ DROPOUT=0
 MOMENTUM=0.9
 MAX_TO_KEEP=5
 
-TIERS="8,2,2"
-RNNS="100,101"
-MLPS="200,201,202"
+TIERS="16,8,4"
+RNNS="2000,2000"
+MLPS="1000,1000"
 Q_LEVELS=256        # Quantification for the amplitude of the audio samples
-SEQ_LEN=512 		# Size for one BPTT pass
+SEQ_LEN=1024 		# Size for one BPTT pass
 EMB_SIZE=256
 OPTIMIZER='adam'
 
@@ -48,17 +51,15 @@ N_SECS=3
 NUM_EXEMPLE_GENERATED=10
 
 BATCH_SIZE=64
-NUM_GPU=1
 
 SAMPLE_RATE=8000
-SAMPLE_SIZE=2**14+8
+SAMPLE_SIZE=2**15
 SLIDING_RATIO=0.75
 SILENCE_THRESHOLD=0.01
 
 def get_arguments():
 	parser = argparse.ArgumentParser(description='SampleRnn example network')
 	# Framework
-	parser.add_argument('--num_gpus',         type=int,   default=NUM_GPU)
 	parser.add_argument('--data_dir',         type=str,   default=DATA_DIRECTORY)
 	parser.add_argument('--logdir_root',      type=str,   default=LOGDIR_ROOT)
 	# Data
@@ -260,28 +261,32 @@ def main():
 	rnns = [int(item) for item in args.rnns.split(',')]
 	mlps = [int(item) for item in args.mlps.split(',')]
 	seq_len_padded = args.seq_len + tiers[0]
+	sample_size_padded = args.sample_size + tiers[0]
 	##############################
 
 	##############################
 	# Get data directory
-	config_str = "_".join([str(args.sample_rate), str(args.sample_size), str(args.sliding_ratio), str(args.silence_threshold)])
+	config_str = "_".join([str(args.sample_rate), str(sample_size_padded), str(args.sliding_ratio), str(args.silence_threshold)])
 	files_dir = args.data_dir
 	npy_dir = files_dir + '/' + config_str
-	# Check if exists
+	# Lock is in the main folder, not in npy_dir
+	# It's a bit too much, but easier to manage this way
 	lock_file_db = files_dir + '/lock'
-	if (not os.path.isdir(npy_dir)) and (not os.path.isfile(lock_file_db)):
-		# Build if not
-		ff = open(lock_file_db, 'w')
-		build_db.main(files_dir, npy_dir, args.sample_rate, args.sample_size, args.sliding_ratio, args.silence_threshold)
-		ff.close()
-		os.remove(lock_file_db)
-		# data_statistics.bar_activations(save_dir, save_dir, sample_size)
-	else:
-		print("Have to wait")
-		import time
-		while os.path.isfile(lock_file_db):
-			# Wait for the end of construction by another process
-			time.sleep(1)
+	# Check if exists
+	while(os.path.isfile(lock_file_db)):
+		# Wait for the end of construction by another process
+		time.sleep(1)
+	if not os.path.isdir(npy_dir):
+		try:
+			# Build if not
+			ff = open(lock_file_db, 'w')
+			build_db.main(files_dir, npy_dir, args.sample_rate, sample_size_padded, args.sliding_ratio, args.silence_threshold)
+			ff.close()
+		except:
+			shutil.rmtree(npy_dir)
+		finally:
+			os.remove(lock_file_db)
+		# data_statistics.bar_activations(save_dir, save_dir, sample_size_padded)
 	##############################
 
 	##############################
@@ -370,7 +375,7 @@ def main():
 
 	# Allocate only a fraction of GPU memory
 	configSession = tf.ConfigProto()
-	configSession.gpu_options.per_process_gpu_memory_fraction = 0.6
+	configSession.gpu_options.per_process_gpu_memory_fraction=0.9
 
 	with tf.Session(config=configSession) as sess:
 		# Summary
@@ -415,8 +420,8 @@ def main():
 		step = None
 		chunk_counter_train = 0
 		length_generation = int(N_SECS*args.sample_rate)  # For generation
-		audio_length = args.sample_size - int(args.tiers[0])
-		bptt_length = args.seq_len
+		audio_length = args.sample_size  # non padded sample_size
+		bptt_length = args.seq_len  # non padded seq_len
 		stateful_rnn_length = audio_length//bptt_length 
 		val_tab = np.zeros((args.num_steps))
 		overfitting = False
@@ -427,6 +432,16 @@ def main():
 			train_list=[loss_N, apply_gradient_op_N, final_big_frame_state_N, final_frame_state_N, raw_output_N]
 		valid_list=[loss_N, final_big_frame_state_N, final_frame_state_N]
 		##############################
+
+		##############################		
+		# Initialize training matrices
+		pool = ThreadPool(processes=2)
+		async_train = pool.apply_async(load_mat, (training_chunks, batch_size, chunk_counter_train))
+		async_valid = pool.apply_async(load_mat, (valid_chunks, len(valid_chunks), 0)) 	 	# Will always be the same, no need to load it at each epoch (we have plenty of memory :) )
+		train_matrix, chunk_counter_train = async_train.get()
+		valid_matrix, _ = async_valid.get()
+		##############################
+
 		try:
 			for step in range(saved_global_step + 1, args.num_steps):
 				if (step-1) % 20 == 0 and step>20:
@@ -451,7 +466,7 @@ def main():
 				
 				##############################
 				# Get train batch
-				train_matrix, chunk_counter_train = load_mat(training_chunks, batch_size, chunk_counter_train)
+				async_train = pool.apply_async(load_mat, (training_chunks, batch_size, chunk_counter_train))
 				##############################
 
 				for i in range(0, stateful_rnn_length):
@@ -484,11 +499,11 @@ def main():
 					loss_norm = loss_sum / stateful_rnn_length
 					##############################
 
+				train_matrix, chunk_counter_train = async_train.get()
 
 				##############################
 				# Get valid batch
 				# For validation we can make one huge batch
-				valid_matrix, _ = load_mat(valid_chunks, len(valid_chunks), 0)
 				final_big_s_val = []
 				final_s_val = []
 				for rnn_dim in rnns:
@@ -542,4 +557,4 @@ def main():
 				save(saver, sess, logdir_save, step)	
 
 if __name__ == '__main__':
-		main()
+	main()

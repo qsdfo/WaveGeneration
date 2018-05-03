@@ -1,28 +1,57 @@
 import numpy as np
+import os
+import shutil
 
 from scipy.io import wavfile
 
 
-def normalize(data):
-    temp = np.float32(data) - np.min(data)
-    # out \in [0,1]
-    out = temp / np.max(temp)
-    # out \in [-1,1]
-    out = (out- 0.5) * 2
-    return out
+def make_batch(chunk_list, chunk_counter, batch_size=32, quantization=256):
+	inputs_matrix = None
+	targets_matrix = None
+	chunk_list_len = len(chunk_list)
+	for batch_index in range(batch_size):
+		# Load chunk
+		data = np.load(chunk_list[chunk_counter])
+		# Update counter
+		chunk_counter = (chunk_counter + 1) % chunk_list_len
+		
+		# Quantize inputs
+		bins = np.linspace(-1, 1, quantization)
+		inputs = np.digitize(data[0:-1], bins, right=False) - 1
+		inputs = bins[inputs]
+		if inputs_matrix is None:
+			inputs_matrix = np.zeros((batch_size, inputs.shape[0], inputs.shape[1]))
+		inputs_matrix[batch_index] = inputs
 
+		# Encode targets as ints.
+		targets = (np.digitize(data[1::], bins, right=False) - 1)
+		if targets_matrix is None:
+			targets_matrix = np.zeros((batch_size, targets.shape[0]))
+		targets_matrix[batch_index] = targets[:,0]
 
-def make_batch(path):
-    data = wavfile.read(path)[1][:, 0]
+	return inputs_matrix, targets_matrix, chunk_counter
 
-    data_ = normalize(data)
-    # data_f = np.sign(data_) * (np.log(1 + 255*np.abs(data_)) / np.log(1 + 255))
+def init_directory(path):
+	if os.path.isdir(path):
+		shutil.rmtree(path)
+	os.makedirs(path)
+	return
 
-    bins = np.linspace(-1, 1, 256)
-    # Quantize inputs.
-    inputs = np.digitize(data_[0:-1], bins, right=False) - 1
-    inputs = bins[inputs][None, :, None]
-
-    # Encode targets as ints.
-    targets = (np.digitize(data_[1::], bins, right=False) - 1)[None, :]
-    return inputs, targets
+def up_criterion(val_tab, epoch, number_strips=3, validation_order=2):
+	#######################################
+	# Article
+	# Early stopping, but when ?
+	# Lutz Prechelt
+	# UP criterion
+	UP = True
+	OVERFITTING = True
+	s = 0
+	epsilon = 0.001
+	while(UP and s < number_strips):
+		t = epoch - s
+		tmk = epoch - s - validation_order
+		UP = val_tab[t] > val_tab[tmk] - epsilon * abs(val_tab[tmk])   # Avoid extremely small evolutions
+		s = s + 1
+		if not UP:
+			OVERFITTING = False
+	return OVERFITTING

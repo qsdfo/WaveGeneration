@@ -81,6 +81,9 @@ def main(audio_dir, save_dir, sample_rate, sample_size=None, sliding_ratio=None,
 		remaining_samples = len(audio) - start_time
 		if remaining_samples > sample_size / 3:
 			piece = audio[-sample_size:]
+			if len(piece) != sample_size:
+				# Case when len(audio) < sample_size
+				continue
 			np.save(os.path.join(save_dir, str(chunk_index)),piece)
 			
 	return
