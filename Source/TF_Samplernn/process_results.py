@@ -10,7 +10,10 @@ def main(results_root):
 		abs_config_folder = os.path.join(results_root, config_folder)
 		if not os.path.isdir(abs_config_folder):
 			continue
-		val_tab = np.load(os.path.join(abs_config_folder,"validation_loss.npy"))
+		try:
+			val_tab = np.load(os.path.join(abs_config_folder,"validation_loss.npy"))
+		except:
+			continue
 		# Get max
 		min_loss = val_tab.min()
 		dict_result[int(config_folder)] = min_loss
@@ -22,5 +25,5 @@ def main(results_root):
 
 
 if __name__=="__main__":
-	results_root = "/fast-1/leo/WaveGeneration/logdir"
+	results_root = "/fast-1/leo/WaveGeneration/TF_Samplernn/logdir"
 	main(results_root)

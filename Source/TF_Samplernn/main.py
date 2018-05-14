@@ -291,7 +291,8 @@ def main():
 
 	##############################
 	# Init dirs
-	ops.init_directory(args.logdir_root)
+	if not os.path.isdir(args.logdir_root):
+		ops.init_directory(args.logdir_root)
 	if args.summary:
 		logdir_summary = os.path.join(args.logdir_root, 'summary')
 		ops.init_directory(logdir_summary)
@@ -348,7 +349,7 @@ def main():
 
 	##############################
 	# Compute losses
-	loss_N, final_big_frame_state_N, final_frame_state_N, raw_output_N = net.loss_SampleRnn(
+	loss_N, final_big_frame_state_N, final_frame_state_N = net.loss_SampleRnn(
 		train_input_batch_rnn_PH,
 		big_frame_state_PH,
 		frame_state_PH,
@@ -427,9 +428,9 @@ def main():
 		overfitting = False
 		if args.summary:
 			train_list=[summary_weight_N, summary_loss_N, summary_preds_N,\
-				loss_N, apply_gradient_op_N, final_big_frame_state_N, final_frame_state_N, raw_output_N]
+				loss_N, apply_gradient_op_N, final_big_frame_state_N, final_frame_state_N]
 		else:
-			train_list=[loss_N, apply_gradient_op_N, final_big_frame_state_N, final_frame_state_N, raw_output_N]
+			train_list=[loss_N, apply_gradient_op_N, final_big_frame_state_N, final_frame_state_N]
 		valid_list=[loss_N, final_big_frame_state_N, final_frame_state_N]
 		##############################
 
@@ -485,9 +486,9 @@ def main():
 					##############################
 					# Run
 					if args.summary:
-						summary_weights, summary_loss, summary_preds, loss, _, final_big_s, final_s, raw_output = sess.run(train_list, feed_dict=inp_dict)
+						summary_weights, summary_loss, summary_preds, loss, _, final_big_s, final_s = sess.run(train_list, feed_dict=inp_dict)
 					else:
-						loss, _, final_big_s, final_s, raw_output = sess.run(train_list, feed_dict=inp_dict)
+						loss, _, final_big_s, final_s = sess.run(train_list, feed_dict=inp_dict)
 					loss_sum += loss
 					##############################
 

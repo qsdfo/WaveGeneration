@@ -19,17 +19,23 @@ from tensorflow.python.client import timeline
 
 from wavenet import WaveNetModel, AudioReader, optimizer_factory
 
+# PREFIX="/home/leo"
+PREFIX="/fast-1/leo"
+# PREFIX="/sb/project/ymd-084-aa/leo"
+
+DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/contrabass_no_cond/ordinario'
+# DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/ordinario_xs'
+LOGDIR_ROOT=PREFIX+'/WaveGeneration/WaveNet/logdir/0'
+
 BATCH_SIZE = 1
-DATA_DIRECTORY = './VCTK-Corpus'
-LOGDIR_ROOT = './logdir'
 CHECKPOINT_EVERY = 50
 NUM_STEPS = int(1e5)
 LEARNING_RATE = 1e-3
 WAVENET_PARAMS = './wavenet_params.json'
 STARTED_DATESTRING = "{0:%Y-%m-%dT%H-%M-%S}".format(datetime.now())
-SAMPLE_SIZE = 100000
+SAMPLE_SIZE = 10000
 L2_REGULARIZATION_STRENGTH = 0
-SILENCE_THRESHOLD = 0.3
+SILENCE_THRESHOLD = 0.01
 EPSILON = 0.001
 MOMENTUM = 0.9
 MAX_TO_KEEP = 5

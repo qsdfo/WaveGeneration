@@ -250,7 +250,7 @@ class SampleRnnModel(object):
 				reduced_loss = tf.reduce_mean(loss)
 				tf.summary.scalar('loss', reduced_loss, collections=["loss"])
 				if l2_regularization_strength is None:
-					return reduced_loss , final_big_frame_state, final_frame_state, raw_output
+					return reduced_loss , final_big_frame_state, final_frame_state
 				else:
 					# L2 regularization for all trainable parameters
 					l2_loss = tf.add_n([tf.nn.l2_loss(v)
