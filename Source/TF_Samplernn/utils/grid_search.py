@@ -9,12 +9,15 @@ if __name__ =="__main__":
 	# PREFIX="/sb/project/ymd-084-aa/leo"
 	# PREFIX="/home/leo"
 	PREFIX="/fast-1/leo"
+	DATABASE_NAME="single_instrument/violin"
 
-	DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/contrabass_no_cond/ordinario'
-	LOGDIR_ROOT=PREFIX+'/WaveGeneration/TF_Samplernn/logdir'
+	DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/' + DATABASE_NAME
+	LOGDIR_ROOT=PREFIX+'/WaveGeneration/TF_Samplernn/logdir/' + DATABASE_NAME
 
 	# Carreful ! Will erase previous results
 	init_directory(LOGDIR_ROOT)
+
+	model = "tiers_3"
 
 	# Hparams
 	hparams = {
@@ -58,6 +61,7 @@ if __name__ =="__main__":
 	--batch_size=64 \\
 	--data_dir=""" + DATA_DIRECTORY + """\\
 	--logdir_root=""" + param_folder + """ \\
+	--model=""" + model + """ \\
 	--checkpoint_every=10 \\
 	--num_steps=100000 \\
 	--learning_rate=1e-3 \\

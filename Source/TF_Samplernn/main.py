@@ -14,7 +14,7 @@ import numpy as np
 import tensorflow as tf
 import build_db
 from tensorflow.python.client import timeline
-from samplernn import SampleRnnModel, AudioReader, mu_law_decode, optimizer_factory
+from samplernn import AudioReader, mu_law_decode, optimizer_factory
 from keras import backend as K
 
 from asynchronous_load_mat import load_mat
@@ -27,9 +27,11 @@ import samplernn.ops as ops
 PREFIX="/fast-1/leo"
 # PREFIX="/sb/project/ymd-084-aa/leo"
 
-DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/contrabass_no_cond/ordinario'
+DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/single_instrument/violin'
 # DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/ordinario_xs'
 LOGDIR_ROOT=PREFIX+'/WaveGeneration/TF_Samplernn/logdir/0'
+
+MODEL='tiers_3'
 
 CHECKPOINT_EVERY=20
 NUM_STEPS=int(1e5)
@@ -39,12 +41,12 @@ DROPOUT=0
 MOMENTUM=0.9
 MAX_TO_KEEP=5
 
-TIERS="16,8,4"
-RNNS="2000,2000"
-MLPS="1000,1000"
-Q_LEVELS=256        # Quantification for the amplitude of the audio samples
+TIERS="8,4,2"
+RNNS="500,500"
+MLPS="300,300"
+Q_LEVELS=128        # Quantification for the amplitude of the audio samples
 SEQ_LEN=1024 		# Size for one BPTT pass
-EMB_SIZE=256
+EMB_SIZE=128
 OPTIMIZER='adam'
 
 N_SECS=3
@@ -62,6 +64,8 @@ def get_arguments():
 	# Framework
 	parser.add_argument('--data_dir',         type=str,   default=DATA_DIRECTORY)
 	parser.add_argument('--logdir_root',      type=str,   default=LOGDIR_ROOT)
+	# Framework
+	parser.add_argument('--model',         	  type=str,   default=MODEL)
 	# Data
 	parser.add_argument('--sample_rate',      type=int,   default=SAMPLE_RATE)
 	parser.add_argument('--sample_size',      type=int,   default=SAMPLE_SIZE)
@@ -125,10 +129,18 @@ def load(saver, sess, logdir):
 		print(" No checkpoint found.")
 		return None
 
+def import_model(model):
+	if model == 'tiers_3':
+		from samplernn.tiers_3 import SampleRnnModel
+	elif model == 'tiers_3_cond':
+		from samplernn.tiers_3_cond import SampleRnnModel
+	return SampleRnnModel	
+
 def create_model(args):
 	tiers = [int(item) for item in args.tiers.split(',')]
 	rnns = [int(item) for item in args.rnns.split(',')]
 	mlps = [int(item) for item in args.mlps.split(',')]
+	SampleRnnModel = import_model(args.model)
 	# Create network.
 	net = SampleRnnModel(
 		tiers=tiers,
@@ -310,12 +322,16 @@ def main():
 	# To always have the same train/validate split, init the random seed
 	random.seed(210691)
 	random.shuffle(chunk_list)
+	# Get CSV list
+	csv_list = [re.sub(".npy", ".csv", e) for e in chunk_list]
 	# Adapt batch_size if we have very few files
 	num_chunk = len(chunk_list) 
 	batch_size = min(args.batch_size, num_chunk)
 	# Split 90 / 10
 	training_chunks = chunk_list[:int(0.9*num_chunk)]
-	valid_chunks = chunk_list[int(0.9*num_chunk):]
+	training_csv = csv_list[:int(0.9*num_chunk)]
+	valid_chunks = chunk_list[int(0.9*num_chunk):
+	valid_csv = csv_list[:int(0.9*num_chunk)]]
 	##############################
 
 	##############################	
@@ -437,10 +453,10 @@ def main():
 		##############################		
 		# Initialize training matrices
 		pool = ThreadPool(processes=2)
-		async_train = pool.apply_async(load_mat, (training_chunks, batch_size, chunk_counter_train))
-		async_valid = pool.apply_async(load_mat, (valid_chunks, len(valid_chunks), 0)) 	 	# Will always be the same, no need to load it at each epoch (we have plenty of memory :) )
-		train_matrix, chunk_counter_train = async_train.get()
-		valid_matrix, _ = async_valid.get()
+		async_train = pool.apply_async(load_mat, (training_chunks, training_csv, batch_size, chunk_counter_train))
+		async_valid = pool.apply_async(load_mat, (valid_chunks, valid_csv, len(valid_chunks), 0)) 	 	# Will always be the same, no need to load it at each epoch (we have plenty of memory :) )
+		train_matrix, train_cond, chunk_counter_train = async_train.get()
+		valid_matrix, valid_cond, _ = async_valid.get()
 		##############################
 
 		try:
@@ -500,7 +516,7 @@ def main():
 					loss_norm = loss_sum / stateful_rnn_length
 					##############################
 
-				train_matrix, chunk_counter_train = async_train.get()
+				train_matrix, train_cond, chunk_counter_train = async_train.get()
 
 				##############################
 				# Get valid batch

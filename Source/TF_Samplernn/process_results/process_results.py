@@ -25,5 +25,5 @@ def main(results_root):
 
 
 if __name__=="__main__":
-	results_root = "/fast-1/leo/WaveGeneration/TF_Samplernn/logdir"
+	results_root = "/slow-2/leo/WaveGeneration/TF_Samplernn/contrabass_no_cond"
 	main(results_root)
