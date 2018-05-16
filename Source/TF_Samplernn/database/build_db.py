@@ -7,8 +7,7 @@ import shutil
 import pickle as pkl
 import numpy as np
 import progressbar
-
-import data_statistics
+import database.conditioning as conditioning
 
 
 def randomize_files(files):
@@ -58,7 +57,7 @@ def main(audio_dir, save_dir, sample_rate, sample_size=None, sliding_ratio=None,
 		shutil.rmtree(save_dir)
 	os.makedirs(save_dir)
 
-	for audio_copy,filename in progressbar.progressbar(iterator):
+	for audio_copy, filename in progressbar.progressbar(iterator):
 		# Init
 		start_time = 0
 		audio = copy.deepcopy(audio_copy)
@@ -70,10 +69,14 @@ def main(audio_dir, save_dir, sample_rate, sample_size=None, sliding_ratio=None,
 			if audio.size == 0:
 				print(("Warning: " + filename + " was ignored as it contains only silence. Consider decreasing trim_silence threshold, or adjust volume of the audio.").format())
 
+		condition = conditioning.generate_condition_from_audio(audio)
+
 		while len(audio) >= (start_time+sample_size):
 			piece = audio[start_time:start_time+sample_size]
+			piece_cond = condition[start_time:start_time+sample_size]
 			# Save piece
 			np.save(os.path.join(save_dir, str(chunk_index)),piece)
+			np.savetxt(os.path.join(save_dir, str(chunk_index) + '.csv'), piece_cond, delimiter=";", fmt='%d')
 			chunk_index += 1
 			start_time = int(start_time + sliding_ratio*sample_size)
 
@@ -81,24 +84,25 @@ def main(audio_dir, save_dir, sample_rate, sample_size=None, sliding_ratio=None,
 		remaining_samples = len(audio) - start_time
 		if remaining_samples > sample_size / 3:
 			piece = audio[-sample_size:]
+			piece_cond = condition[-sample_size:]
 			if len(piece) != sample_size:
 				# Case when len(audio) < sample_size
 				continue
 			np.save(os.path.join(save_dir, str(chunk_index)),piece)
+			np.savetxt(os.path.join(save_dir, str(chunk_index) + '.csv'), piece_cond, delimiter=";", fmt='%d')
 			
 	return
 
 if __name__ == '__main__':
-	audio_dir='/fast-1/leo/WaveGeneration/Data/contrabass_no_cond/ordinario'
+	audio_dir='/fast-1/leo/WaveGeneration/Data/single_instrument/contrabass'
 	# audio_dir='/Users/leo/Recherche/WaveGeneration/Data/contrabass_no_cond/ordinario'
 	sample_rate=8000
-	sample_size=2**14+8
+	sample_size=2**13+8
 	# sample_size=2**10+8
 	sliding_ratio=0.75
 	silence_threshold=0.01
 
-	config_str = "_".join([sample_rate, sample_size, sliding_ratio, silence_threshold])
+	config_str = "_".join([str(sample_rate), str(sample_size), str(sliding_ratio), str(silence_threshold)])
 	save_dir = audio_dir + '/' + config_str
 
 	main(audio_dir, save_dir, sample_rate, sample_size, sliding_ratio, silence_threshold)
-	data_statistics.bar_activations(save_dir, save_dir, sample_size)

@@ -1,6 +1,6 @@
 import random
 import numpy as np
-import build_db
+import database.build_db
 from samplernn.ops import mu_law_encode, linear_encode, linear_decode
 import tensorflow as tf
 import progressbar

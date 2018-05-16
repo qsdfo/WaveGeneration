@@ -16,13 +16,14 @@ def load_mat(chunk_list, csv_list, batch_size, chunk_counter):
 		# Load chunk
 		chunk = np.load(chunk_list[chunk_counter])
 		# Load cond
-		with open(csv_list[batch_index], 'r') as ff:
-			cond = np.loadtxt(c, delimiter=',', usecols=(0, 2), unpack=True)
+		cond = np.loadtxt(csv_list[chunk_counter], delimiter=";", dtype=np.int)
 		# Update counter
 		chunk_counter = (chunk_counter + 1) % chunk_list_len
 		# Instanciate matrix_return
 		if matrix_return is None:
 			matrix_return = np.zeros((batch_size, chunk.shape[0], chunk.shape[1]))
+			cond_return = np.zeros((batch_size, len(cond)))
 		# Write in matrix
 		matrix_return[batch_index] = chunk
-	return matrix_return, chunk_counter
+		cond_return[batch_index] = cond
+	return matrix_return, cond_return, chunk_counter

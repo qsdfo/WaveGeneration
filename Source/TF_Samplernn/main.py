@@ -7,29 +7,29 @@ import sys
 import shutil
 import time
 import pickle as pkl
+import re
 from multiprocessing.pool import ThreadPool
 
 import librosa
 import numpy as np
 import tensorflow as tf
-import build_db
 from tensorflow.python.client import timeline
-from samplernn import AudioReader, mu_law_decode, optimizer_factory
 from keras import backend as K
 
 from asynchronous_load_mat import load_mat
-import build_db
-import early_stopping
-import samplernn.ops as ops
+import database.build_db as build_db
+import utils.early_stopping as early_stopping
+import utils.ops as ops
 
 
 # PREFIX="/home/leo"
 PREFIX="/fast-1/leo"
 # PREFIX="/sb/project/ymd-084-aa/leo"
+DATABASE_NAME="single_instrument/contrabass"
 
-DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/single_instrument/violin'
+DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/' + DATABASE_NAME
 # DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/ordinario_xs'
-LOGDIR_ROOT=PREFIX+'/WaveGeneration/TF_Samplernn/logdir/0'
+LOGDIR_ROOT=PREFIX+'/WaveGeneration/TF_Samplernn/logdir/' + DATABASE_NAME
 
 MODEL='tiers_3'
 
@@ -55,7 +55,7 @@ NUM_EXEMPLE_GENERATED=10
 BATCH_SIZE=64
 
 SAMPLE_RATE=8000
-SAMPLE_SIZE=2**15
+SAMPLE_SIZE=2**13
 SLIDING_RATIO=0.75
 SILENCE_THRESHOLD=0.01
 
@@ -81,7 +81,7 @@ def get_arguments():
 	parser.add_argument('--dropout', type=float, default=DROPOUT)	
 	parser.add_argument('--l2_regularization_strength', type=float, default=L2_REGULARIZATION_STRENGTH)	
 	# Optim
-	parser.add_argument('--optimizer',        type=str,   default=OPTIMIZER, choices=list(optimizer_factory.keys()))
+	parser.add_argument('--optimizer',        type=str,   default=OPTIMIZER, choices=list(ops.optimizer_factory.keys()))
 	parser.add_argument('--learning_rate',    type=float, default=LEARNING_RATE)
 	parser.add_argument('--momentum',         type=float, default=MOMENTUM)
 	# Training
@@ -134,7 +134,7 @@ def import_model(model):
 		from samplernn.tiers_3 import SampleRnnModel
 	elif model == 'tiers_3_cond':
 		from samplernn.tiers_3_cond import SampleRnnModel
-	return SampleRnnModel	
+	return SampleRnnModel
 
 def create_model(args):
 	tiers = [int(item) for item in args.tiers.split(',')]
@@ -190,7 +190,7 @@ def create_gen_wav_para(net):
 		gen_output['sample'] = tf.cast(tf.nn.softmax(tf.cast(sample_out, tf.float64)), tf.float32)
 
 		gen_input['sample_to_decode'] = tf.placeholder(tf.int32)
-		gen_output['sample_decoded'] = mu_law_decode(gen_input['sample_to_decode'], net.q_levels)
+		gen_output['sample_decoded'] = ops.mu_law_decode(gen_input['sample_to_decode'], net.q_levels)
 
 		return gen_input, gen_output
 
@@ -281,6 +281,7 @@ def main():
 	config_str = "_".join([str(args.sample_rate), str(sample_size_padded), str(args.sliding_ratio), str(args.silence_threshold)])
 	files_dir = args.data_dir
 	npy_dir = files_dir + '/' + config_str
+
 	# Lock is in the main folder, not in npy_dir
 	# It's a bit too much, but easier to manage this way
 	lock_file_db = files_dir + '/lock'
@@ -330,8 +331,8 @@ def main():
 	# Split 90 / 10
 	training_chunks = chunk_list[:int(0.9*num_chunk)]
 	training_csv = csv_list[:int(0.9*num_chunk)]
-	valid_chunks = chunk_list[int(0.9*num_chunk):
-	valid_csv = csv_list[:int(0.9*num_chunk)]]
+	valid_chunks = chunk_list[int(0.9*num_chunk):]
+	valid_csv = csv_list[int(0.9*num_chunk):]
 	##############################
 
 	##############################	
@@ -345,7 +346,7 @@ def main():
 	# Init optimizer and declare variable
 	ttt = time.time()
 	global_step = tf.get_variable('global_step', [], initializer=tf.constant_initializer(0), trainable=False)
-	optim = optimizer_factory[args.optimizer](
+	optim = ops.optimizer_factory[args.optimizer](
 		learning_rate=args.learning_rate,
 		momentum=args.momentum)
 	print("TTT: Initialize graph's variables : {}".format(time.time()-ttt))
@@ -354,7 +355,8 @@ def main():
 	##############################	
 	# Placeholders
 	ttt = time.time()
-	train_input_batch_rnn_PH = tf.placeholder(tf.float32, shape=(None, seq_len_padded, 1), name="train_input_batch_rnn")
+	train_input_PH = tf.placeholder(tf.float32, shape=(None, seq_len_padded, 1), name="train_input_batch_rnn")
+	train_cond_PH = tf.placeholder(tf.float32, shape=(None, seq_len_padded), name="train_input_batch_rnn")
 	generate_input_batch_rnn_PH = tf.placeholder(tf.float32, shape=(None, args.tiers[0], 1), name="generate_input_batch_rnn")
 	big_frame_state_PH = []
 	frame_state_PH = []
@@ -365,12 +367,21 @@ def main():
 
 	##############################
 	# Compute losses
-	loss_N, final_big_frame_state_N, final_frame_state_N = net.loss_SampleRnn(
-		train_input_batch_rnn_PH,
-		big_frame_state_PH,
-		frame_state_PH,
-		seq_len_padded,
-		l2_regularization_strength=args.l2_regularization_strength)
+	if net.condition_bool():
+		loss_N, final_big_frame_state_N, final_frame_state_N = net.loss_SampleRnn(
+			train_input_PH,
+			train_cond_PH,
+			big_frame_state_PH,
+			frame_state_PH,
+			seq_len_padded,
+			l2_regularization_strength=args.l2_regularization_strength)
+	else:
+		loss_N, final_big_frame_state_N, final_frame_state_N = net.loss_SampleRnn(
+				train_input_PH,
+				big_frame_state_PH,
+				frame_state_PH,
+				seq_len_padded,
+				l2_regularization_strength=args.l2_regularization_strength)
 
 	grad_vars = optim.compute_gradients(loss_N, tf.trainable_variables())
 	grads, vars = list(zip(*grad_vars))
@@ -483,14 +494,16 @@ def main():
 				
 				##############################
 				# Get train batch
-				async_train = pool.apply_async(load_mat, (training_chunks, batch_size, chunk_counter_train))
+				async_train = pool.apply_async(load_mat, (training_chunks, training_csv, batch_size, chunk_counter_train))
 				##############################
 
 				for i in range(0, stateful_rnn_length):
 					##############################
 					# Write data in input ict
 					inp_dict={}
-					inp_dict[train_input_batch_rnn_PH] = train_matrix[:, idx_begin: idx_begin+seq_len_padded,:]
+					inp_dict[train_input_PH] = train_matrix[:, idx_begin: idx_begin+seq_len_padded,:]
+					if net.condition_bool():
+						inp_dict[train_cond_PH] = train_cond[:, idx_begin: idx_begin+seq_len_padded]
 					for state_PH, state_value in zip(big_frame_state_PH, final_big_s):
 						inp_dict[state_PH] = state_value
 					for state_PH, state_value in zip(frame_state_PH, final_s):
@@ -532,7 +545,8 @@ def main():
 				loss_val_sum = 0
 				for i in range(0, stateful_rnn_length):
 					valid_dict={}
-					valid_dict[train_input_batch_rnn_PH] = valid_matrix[:, idx_begin: idx_begin+seq_len_padded,:]
+					valid_dict[train_input_PH] = valid_matrix[:, idx_begin: idx_begin+seq_len_padded,:]
+					valid_dict[train_cond_PH] = valid_cond[:, idx_begin: idx_begin+seq_len_padded]
 					for state_PH, state_value in zip(big_frame_state_PH, final_big_s_val):
 						valid_dict[state_PH] = state_value
 					for state_PH, state_value in zip(frame_state_PH, final_s_val):

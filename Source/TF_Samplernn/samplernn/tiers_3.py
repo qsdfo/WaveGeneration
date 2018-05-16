@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import embedding_ops
-from .ops import mu_law_encode
+from utils.ops import mu_law_encode
 
 import keras
 from keras.layers.recurrent import GRU
@@ -27,6 +27,10 @@ class SampleRnnModel(object):
 		self._init_weigths()
 
 		return
+
+	@staticmethod
+	def condition_bool():
+		return False
 
 	def _init_weigths(self):
 		self.weights={}
