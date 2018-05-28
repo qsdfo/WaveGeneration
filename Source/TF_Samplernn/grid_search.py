@@ -2,14 +2,14 @@ from sklearn.model_selection import ParameterGrid
 import json
 import os
 import subprocess
-from samplernn.ops import init_directory
+from utils.ops import init_directory
 
 if __name__ =="__main__":
 	LOCAL = True
 	# PREFIX="/sb/project/ymd-084-aa/leo"
 	# PREFIX="/home/leo"
 	PREFIX="/fast-1/leo"
-	DATABASE_NAME="single_instrument/violin"
+	DATABASE_NAME="single_instrument/flute"
 
 	DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/' + DATABASE_NAME
 	LOGDIR_ROOT=PREFIX+'/WaveGeneration/TF_Samplernn/logdir/' + DATABASE_NAME
@@ -55,7 +55,7 @@ if __name__ =="__main__":
 
 		# Write config
 		with open(param_folder + '/hparam.json', 'w') as fp:
-			json.dump(hparam, fp)
+			json.dump(hparam, fp, indent=2)
 
 		main_command = """python main.py \\
 	--batch_size=64 \\

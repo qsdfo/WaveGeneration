@@ -25,7 +25,7 @@ import utils.ops as ops
 # PREFIX="/home/leo"
 PREFIX="/fast-1/leo"
 # PREFIX="/sb/project/ymd-084-aa/leo"
-DATABASE_NAME="single_instrument/contrabass"
+DATABASE_NAME="mixed_instrument/contrabass_violin"
 
 DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/' + DATABASE_NAME
 # DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/ordinario_xs'

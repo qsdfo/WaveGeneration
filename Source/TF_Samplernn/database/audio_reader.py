@@ -32,6 +32,7 @@ def load_generic_audio(directory, sample_rate):
   randomized_files = randomize_files(files)
   for filename in randomized_files:
       audio, _ = librosa.load(filename, sr=sample_rate, mono=True)
+      import pdb; pdb.set_trace()
       audio = audio.reshape(-1, 1)
       yield audio, filename
 

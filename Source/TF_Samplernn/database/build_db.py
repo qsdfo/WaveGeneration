@@ -7,7 +7,7 @@ import shutil
 import pickle as pkl
 import numpy as np
 import progressbar
-import database.conditioning as conditioning
+import TF_Samplernn.database.conditioning as conditioning
 
 
 def randomize_files(files):
@@ -29,7 +29,7 @@ def find_files(directory, pattern='*.wav'):
 
 def load_generic_audio(files, sample_rate):
 	'''Generator that yields audio waveforms from the directory.'''
-	print("files length: {}".format(len(files)))
+	# print("files length: {}".format(len(files)))
 	randomized_files = randomize_files(files)
 	for filename in randomized_files:
 		audio, _ = librosa.load(filename, sr=sample_rate, mono=True)
@@ -47,8 +47,6 @@ def trim_silence(audio, threshold):
 
 
 def main(audio_dir, save_dir, sample_rate, sample_size=None, sliding_ratio=None, silence_threshold=None):
-	# Go through the dataset multiple times
-	audio_list = []
 	files = find_files(audio_dir)
 	iterator = load_generic_audio(files, sample_rate)
 	

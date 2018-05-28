@@ -10,7 +10,6 @@ def load_mat(chunk_list, csv_list, batch_size, chunk_counter):
 	""" 
 	
 	matrix_return = None
-
 	chunk_list_len = len(chunk_list)
 	for batch_index in range(batch_size):
 		# Load chunk
