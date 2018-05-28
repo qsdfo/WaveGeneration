@@ -56,3 +56,4 @@ if __name__=="__main__":
 	for db in db_list:
 		results_root = "/slow-2/leo/WaveGeneration/TF_Samplernn/" + db
 		mean_score, best_score, best_config = main(results_root)
+		print(("######## {}\nmean_score: {}\nbest_score: {}\nbest_config: {:.3f}").format(db, mean_score, best_score, best_config))
