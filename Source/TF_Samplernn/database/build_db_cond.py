@@ -47,19 +47,18 @@ def trim_silence(audio, threshold):
   return audio[indices[0]:indices[-1]] if indices.size else audio[0:0]
 
 
-def main(audio_dir_name, save_dir, sample_rate, sample_size=None, sliding_ratio=None, silence_threshold=None):
-	# Infer source databases
-	import pdb; pdb.set_trace()
-
-	if "mixed_instrument" in audio_dir_name:
-		split_path = re.split("/", audio_dir_name)
-		instruments = re.split("_", split_path[-1])
-		audio_dirs_prefix = "/".join(split_path[:-2]) + "/single_instrument/"
-		audio_dirs = [audio_dirs_prefix + e for e in instruments]
-
+def main(files_dir, save_dir, sample_rate, sample_size=None, sliding_ratio=None, silence_threshold=None):	
 	if os.path.isdir(save_dir):
 		shutil.rmtree(save_dir)
 	os.makedirs(save_dir)
+
+	if "mixed_instrument" in files_dir:
+		split_path = re.split("/", files_dir)
+		instruments = re.split("_", split_path[-1])
+		audio_dirs_prefix = "/".join(split_path[:-2]) + "/single_instrument/"
+		audio_dirs = [audio_dirs_prefix + e for e in instruments]
+	else:
+		audio_dirs = [files_dir]
 
 	db_label = 0
 	
@@ -73,7 +72,7 @@ def main(audio_dir_name, save_dir, sample_rate, sample_size=None, sliding_ratio=
 			# Init
 			start_time = 0
 			audio = copy.deepcopy(audio_copy)
-				
+
 			if silence_threshold is not None:
 				# Remove silence
 				audio = trim_silence(audio[:, 0], silence_threshold)
@@ -109,15 +108,10 @@ def main(audio_dir_name, save_dir, sample_rate, sample_size=None, sliding_ratio=
 	return
 
 if __name__ == '__main__':
-	audio_dir=['/fast-1/leo/WaveGeneration/Data/single_instrument/contrabass', '/fast-1/leo/WaveGeneration/Data/single_instrument/violin']
-	instrus = [re.split("/", e)[-1] for e in audio_dir]
+	files_dir='/tmp/leo/WaveGeneration/Data/mixed_instrument/flute_bassoon'
 	sample_rate=8000
-	sample_size=2**13
+	sample_size=2**9
 	sliding_ratio=0.75
 	silence_threshold=0.01
 
-	config_str = "_".join([str(sample_rate), str(sample_size), str(sliding_ratio), str(silence_threshold)])
-	instru_dir = "_".join(instrus)
-	save_dir = "/fast-1/leo/WaveGeneration/Data/mixed_instrument/" + instru_dir + "/" + config_str
-
-	main(audio_dir, save_dir, sample_rate, sample_size, sliding_ratio, silence_threshold)
+	main(files_dir, sample_rate, sample_size, sliding_ratio, silence_threshold)

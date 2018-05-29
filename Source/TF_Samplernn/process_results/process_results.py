@@ -1,3 +1,4 @@
+import math
 import os
 import json
 import csv
@@ -21,7 +22,9 @@ def main(results_root):
 		except:
 			continue
 		# Get max
-		min_loss = val_tab.min()
+		min_loss = val_tab[np.logical_not(np.isnan(val_tab))].min()
+		if math.isnan(min_loss):
+			import pdb; pdb.set_trace()
 		mean_score.append(min_loss)
 		this_dict_result = {}
 		this_dict_result["config_id"] = int(config_folder)
@@ -56,5 +59,4 @@ if __name__=="__main__":
 	for db in db_list:
 		results_root = "/slow-2/leo/WaveGeneration/TF_Samplernn/" + db
 		mean_score, best_score, best_config = main(results_root)
-		import pdb; pdb.set_trace()
 		print(("######## {}\nmean_score: {:.4f}\nbest_score: {:.4f}\nbest_config: {}").format(db, mean_score, best_score, best_config))
