@@ -56,5 +56,4 @@ if __name__=="__main__":
 	for db in db_list:
 		results_root = "/slow-2/leo/WaveGeneration/TF_Samplernn/" + db
 		mean_score, best_score, best_config = main(results_root)
-		import pdb; pdb.set_trace()
 		print(("######## {}\nmean_score: {:.4f}\nbest_score: {:.4f}\nbest_config: {}").format(db, mean_score, best_score, best_config))
