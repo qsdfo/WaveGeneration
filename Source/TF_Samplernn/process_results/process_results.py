@@ -1,3 +1,4 @@
+import math
 import os
 import json
 import csv
@@ -21,7 +22,9 @@ def main(results_root):
 		except:
 			continue
 		# Get max
-		min_loss = val_tab.min()
+		min_loss = val_tab[np.logical_not(np.isnan(val_tab))].min()
+		if math.isnan(min_loss):
+			import pdb; pdb.set_trace()
 		mean_score.append(min_loss)
 		this_dict_result = {}
 		this_dict_result["config_id"] = int(config_folder)

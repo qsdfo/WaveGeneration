@@ -8,7 +8,6 @@ import csv
 def load_mat(chunk_list, csv_list, batch_size, chunk_counter):
 	"""Thread for loading matrices during training
 	""" 
-	
 	matrix_return = None
 	chunk_list_len = len(chunk_list)
 	for batch_index in range(batch_size):

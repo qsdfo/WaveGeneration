@@ -17,13 +17,14 @@ from tensorflow.python.client import timeline
 from keras import backend as K
 
 from asynchronous_load_mat import load_mat
-import database.build_db as build_db
+import database.build_db_cond as build_db_cond
 import utils.early_stopping as early_stopping
 import utils.ops as ops
 
 
 # PREFIX="/home/leo"
-PREFIX="/fast-1/leo"
+PREFIX="/tmp/leo"
+# PREFIX="/fast-1/leo"
 # PREFIX="/sb/project/ymd-084-aa/leo"
 DATABASE_NAME="mixed_instrument/contrabass_violin"
 
@@ -159,17 +160,23 @@ def create_gen_wav_para(net):
 		gen_output = {}
 
 		gen_input['big_frame'] = tf.placeholder(tf.float32, shape=(None, net.big_frame_size, 1), name="gen_big_frame")
+		if net.condition_bool():
+			gen_input['big_cond'] = tf.placeholder(tf.float32, shape=(None, net.big_frame_size, 1), name="gen_big_cond")
 		gen_input['big_frame_state'] = []
 		for layer, rnn_dim in enumerate(net.rnns):
 			gen_input['big_frame_state'].append(tf.placeholder(tf.float32, shape=(None, rnn_dim), name="gen_big_frame_state_" + str(layer)))
 
 		gen_input['frame_from_big'] = tf.placeholder(tf.float32, shape=(None, 1, net.rnns[0]), name='gen_frame_from_big')
 		gen_input['frame'] = tf.placeholder(tf.float32, (None, net.frame_size, 1), name="gen_frame")
+		if net.condition_bool():
+			gen_input['frame_cond'] = tf.placeholder(tf.float32, (None, net.frame_size, 1), name="gen_frame_cond")
 		gen_input['frame_state'] = []
 		for layer, rnn_dim in enumerate(net.rnns):
 			gen_input['frame_state'].append(tf.placeholder(tf.float32, (None, rnn_dim), name="gen_frame_state"))
 
 		gen_input['sample_from_frame'] = tf.placeholder(tf.float32, shape=(None, 1, net.mlps[0]), name='gen_frame_from_big')
+		if net.condition_bool():
+			gen_input['sample_cond'] = tf.placeholder(tf.float32, shape=(None, 1), name='gen_sample_cond')
 		gen_input['sample'] = tf.placeholder(tf.int32, (None, net.autoregressive_order, 1), name="gen_frame")
 
 		gen_output['big_frame'], gen_output['big_frame_state'] = net._create_network_BigFrame(big_frame_states=gen_input['big_frame_state'],
@@ -278,13 +285,12 @@ def main():
 
 	##############################
 	# Get data directory
-	config_str = "_".join([str(args.sample_rate), str(sample_size_padded), str(args.sliding_ratio), str(args.silence_threshold)])
 	files_dir = args.data_dir
-	npy_dir = files_dir + '/' + config_str
-
-	# Lock is in the main folder, not in npy_dir
 	# It's a bit too much, but easier to manage this way
+	config_str = "_".join([str(args.sample_rate), str(args.sample_size), str(args.sliding_ratio), str(args.silence_threshold)])
+	npy_dir = files_dir + '/' + config_str
 	lock_file_db = files_dir + '/lock'
+	
 	# Check if exists
 	while(os.path.isfile(lock_file_db)):
 		# Wait for the end of construction by another process
@@ -293,7 +299,7 @@ def main():
 		try:
 			# Build if not
 			ff = open(lock_file_db, 'w')
-			build_db.main(files_dir, npy_dir, args.sample_rate, sample_size_padded, args.sliding_ratio, args.silence_threshold)
+			build_db_cond.main(files_dir, npy_dir, args.sample_rate, sample_size_padded, args.sliding_ratio, args.silence_threshold)	
 			ff.close()
 		except:
 			shutil.rmtree(npy_dir)
@@ -319,7 +325,7 @@ def main():
 	##############################
 	# Get Data and Split them
 	# Get list of data chunks
-	chunk_list = build_db.find_files(npy_dir, pattern="*.npy")
+	chunk_list = build_db_cond.find_files(npy_dir, pattern="*.npy")
 	# To always have the same train/validate split, init the random seed
 	random.seed(210691)
 	random.shuffle(chunk_list)
@@ -337,7 +343,7 @@ def main():
 
 	##############################	
 	# Create network
-	import time; ttt=time.time()
+	ttt=time.time()
 	net =  create_model(args)
 	print("TTT: Instanciate network : {}".format(time.time()-ttt))
 	##############################

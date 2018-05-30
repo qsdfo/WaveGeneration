@@ -9,8 +9,8 @@ if __name__ =="__main__":
 	# PREFIX="/sb/project/ymd-084-aa/leo"
 	# PREFIX="/home/leo"
 	PREFIX="/fast-1/leo"
-	DATABASE_NAME="single_instrument/flute"
-
+	# PREFIX="/tmp/leo"
+	DATABASE_NAME="single_instrument/kicks"
 	DATA_DIRECTORY=PREFIX+'/WaveGeneration/Data/' + DATABASE_NAME
 	LOGDIR_ROOT=PREFIX+'/WaveGeneration/TF_Samplernn/logdir/' + DATABASE_NAME
 
@@ -21,22 +21,24 @@ if __name__ =="__main__":
 
 	# Hparams
 	hparams = {
-		"l2_regularization_strength": [0, 1e-3],
-		"dropout":[0, 0.5],
-		"sample_size": [2**15+8],
+		"l2_regularization_strength": [0], # Toujours a 0, ca plante tout. Ou alors une valeur plus tranquille, genre 0.2 ?
+		"dropout":[0],
+		"sample_size": [2**15],
+		"sample_rate": [16000],
 		"seq_len": [1024],
-		"tiers": [
+		"tiers": [		# Dépend du modèle, cf Hyper-param search
 			# "32,16,8",
-			"16,8,4", "16,4,2",
-			"8,4,2", "8,2,2"
+			"16,8,4", 
+			# "16,4,2",
+			# "8,4,2", "8,2,2"
 		],
 		"rnns": [
 			"2000,2000",
-			"1000,1000",
-			"1000"
+			# "1000,1000",
+			# "1000"
 		],
 		"mlps": [		# Last layer will automatically be added to map toward a q_level space
-			"1000,1000",
+			# "1000,1000",
 			"2000,2000"
 		],
 		"emb_size": [256],
